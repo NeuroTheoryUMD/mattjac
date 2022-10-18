@@ -2,3 +2,7 @@
 *.pdf
 *.ipynb_checkpoints
 *.txt
+lvs/NDNT
+lvs/NTdatasets
+lvs/checkpoints
+lvs/__pycache__
