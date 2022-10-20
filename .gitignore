@@ -2,6 +2,7 @@
 *.pdf
 *.ipynb_checkpoints
 *.txt
+*.pickle
 lvs/NDNT
 lvs/NTdatasets
 lvs/checkpoints

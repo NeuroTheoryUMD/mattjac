@@ -10,7 +10,6 @@ def fig():
     # make a new figure
     return plt.figure()
 
-
 # make a bunch of subplots of the provided vectors, and their names
 def plots(*args, title=None):
     # show the legend if the labels are provided
