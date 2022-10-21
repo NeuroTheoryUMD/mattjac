@@ -21,6 +21,15 @@ def load_model(_filename):
     return model
 
 
+def enpickle(obj, filename):
+    with open(filename, 'wb') as f:
+        pickle.dump(obj, f)
+
+def depickle(filename):
+    with open(filename, 'rb') as f:
+        return pickle.load(f)
+
+
 def construct_R_matrix(data):
     # determine R matrix shape (trials X time X neurons)
     num_trials = len(data.block_inds)
