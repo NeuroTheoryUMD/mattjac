@@ -2,6 +2,7 @@
 
 import matplotlib.pyplot as plt
 import NDNT.utils as utils # some other utilities
+import math
 
 
 # make new figure for simplicity
@@ -30,6 +31,21 @@ def plots(*args, title=None):
     plt.show()
 
 
+# turn a flat list of things into a grid of things
+def list_to_grid(objects, width):
+    height = math.ceil(len(objects) / width)
+    grid = []
+    for i in range(height):
+        grid.append([])
+        for j in range(width):
+            idx = j + width*i
+            if idx < len(objects):
+                grid[i].append(objects[idx])
+            else:
+                grid[i].append(None)
+    return grid, height
+
+
 def plot_glm_filters(glm, nc):
     ws = glm.get_weights()
     utils.ss(5,6)
@@ -39,4 +55,7 @@ def plot_glm_filters(glm, nc):
         utils.imagesc(ws[:,:,cc])
         plt.colorbar()
     plt.show()
+
+
+
 

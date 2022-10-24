@@ -4,11 +4,26 @@ import numpy as np
 from sklearn.linear_model import LogisticRegression
 
 
+# https://stackoverflow.com/questions/13728392/moving-average-or-running-mean
+def movavg(x, n, mode='valid'):
+    modes = ['full', 'same', 'valid']
+    assert mode in modes, 'mode should be one of: ' + ' '.join(modes)
+    return np.convolve(x, np.ones(n)/n, mode=mode)
+
+
+def smooth(robs, n):
+    nt = robs.shape[0]
+    nc = robs.shape[1] # number of cells
+    smoothed = np.zeros((nt, nc))
+    for i in range(nc): # for each cell
+        smoothed[:, i] = movavg(robs[:, i], n, mode='same')
+    return smoothed
+
+
 def centroid_vector(Z, Y):
     # take means across trials and time
     classes = np.unique(Y)
-    if len(classes) > 2:
-        assert "Y can only have 2 classes"
+    assert len(classes) <= 2, "Y can only have 2 classes"
 
     # get the indices for each class
     Y0 = np.where(Y == classes[0])

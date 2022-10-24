@@ -68,12 +68,18 @@ def construct_Z_matrix(R, model, num_latents=3):
     return Z
 
 
+def get_z(data, model):
+    z = model.networks[1].layers[0](data.robs)
+    z = torch.tensor([z_i.detach().numpy() for z_i in z])  # convert each to a numpy array
+    return z
+
+
 # TODO: this is also probably unnecessary
 def calc_behavior_centroids(latents, behaviors, behavior_categories):
     category_to_centroid = {}
     for behavior_category in behavior_categories: # e.g. -1, 1
         # filter the latents by the current category
-        latents_for_category = latents[np.where(behaviors == behavioral_category)]
+        latents_for_category = latents[np.where(behaviors == behavior_category)]
         # get mean of latents for this category, across columns
         mean_latents_for_category = np.mean(latents_for_category, axis=0)
         category_to_centroid[behavior_category] = mean_latents_for_category
