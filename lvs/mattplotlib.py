@@ -1,6 +1,8 @@
 # utilities to make plotting data simpler and easier
 
 import matplotlib.pyplot as plt
+import NDNT.utils as utils # some other utilities
+
 
 # make new figure for simplicity
 def fig():
@@ -9,6 +11,7 @@ def fig():
         plt.close("all")
     # make a new figure
     return plt.figure()
+
 
 # make a bunch of subplots of the provided vectors, and their names
 def plots(*args, title=None):
@@ -26,4 +29,14 @@ def plots(*args, title=None):
             plt.plot(arg)
     plt.show()
 
+
+def plot_glm_filters(glm, nc):
+    ws = glm.get_weights()
+    utils.ss(5,6)
+
+    for cc in range(nc):
+        plt.subplot(5,6, cc+1)
+        utils.imagesc(ws[:,:,cc])
+        plt.colorbar()
+    plt.show()
 

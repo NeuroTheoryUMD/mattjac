@@ -78,3 +78,4 @@ def calc_behavior_centroids(latents, behaviors, behavior_categories):
         mean_latents_for_category = np.mean(latents_for_category, axis=0)
         category_to_centroid[behavior_category] = mean_latents_for_category
     return category_to_centroid
+
