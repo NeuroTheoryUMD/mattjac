@@ -7,6 +7,7 @@ lvs/NDNT
 lvs/NTdatasets
 lvs/checkpoints
 lvs/__pycache__
+lvs/lib/__pycache__
 lvs/.virtual_documents
 lvs/web
 lvs/fun
