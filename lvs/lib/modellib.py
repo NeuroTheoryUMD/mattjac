@@ -5,6 +5,7 @@ import torch
 import scipy.io as sio
 import numpy as np
 import pickle
+import networkx as nx
 import matplotlib.pyplot as plt
 import NTdatasets.HN.HNdatasets as datasets
 import NDNT.utils as utils
@@ -61,21 +62,24 @@ def define_latent_layer(num_latents, num_cells, as_layer=True):
     nl_type = 'lin' if as_layer else 'softplus'
 
     # input --> LVs (X --> Z)
+    # encoder
     AClin_layer = NDNLayer.layer_dict(
         # what are these input_dims?
         input_dims=[num_cells, 1, 1, 1], num_filters=num_latents, # num_LVs --> |Z|
         norm_type=1, # normalization needed to keep the scale
         # this adjusts the activation threshold by making the output spikes more or less
-        bias=False, # don't put a bias layer on the input
-        NLtype='lin') # 'lin' -> linear layer
+        bias=False, # don't put a bias on the input
+        NLtype='lin') # 'lin' -> linear, no nonlinearity applied here
 
     # LVs --> output (Z --> X')
+    # decoder
     ACout_layer = NDNLayer.layer_dict(
         num_filters=num_cells,
         bias=True,
         NLtype=nl_type)
 
-    # apply L2 regularization on the output for some reason
+    # apply L2 regularization on the output
+    # TODO: I don't understand why, though
     ACout_layer['reg_vals'] = {'l2': L2reg}
 
     # return the autoencoder as an FFnetwork (TODO: do we want to do this?)
@@ -205,4 +209,40 @@ def train_glm_with_drift(data, drift_net, drift_mod):
     # Evaluate model using null-adjusted log-likelihood
     LLs0 = glmD0.eval_models(data[data.val_inds], null_adjusted=False)
     return LLs0, glmD0
+    
+
+# TODO: use networkx to draw the network to see what it looks like
+def draw_network(model):
+    # TODO: go through each network, and its layers and connect them into a network
+    # TODO: add any attributes to the nodes and edges that make it clearer what they are doing
+    assert type(model) == NDN.NDN, "model needs to be of type NDN"
+
+    # define the network
+    g = nx.DiGraph()
+    
+    # go through the networks in the model
+    for netidx, network in enumerate(model.networks):
+        # add the network as a node
+        g.add_node(netidx)
+    
+        # add edges between data and networks
+        if network.xstim_n is not None:
+            g.add_edge(network.xstim_n, netidx)
+    
+        # add edges between networks
+        if network.ffnets_in is not None:
+            for inputidx in network.ffnets_in:
+                g.add_edge(inputidx, netidx)
+                # attribute the edge if the network type is something
+                # TODO: think about how to represent the attrs,
+                #       but don't get too deep into this yet.
+                #       Maybe I can use D3 for this to make it render nicer.
+                if network.network_type is not None:
+                    g[inputidx][netidx]['type'] = network.network_type
+        # inputs to each network
+        # QUESTION: can a network have ffnets_in and xstim_n?
+        print(network.xstim_n, network.ffnets_in)
+    
+    # draw the network
+    nx.draw_networkx(g)
     
