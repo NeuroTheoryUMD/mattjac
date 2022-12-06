@@ -53,7 +53,7 @@ def construct_R_matrix(data):
     return R
 
 
-def construct_Z_matrix(R, model, num_latents=3):
+def construct_Z_matrix(R, model, ac_network, num_latents=3):
     # determine Z matrix shape (trials X time X latents)
     num_trials = R.shape[0]
     max_trial_length = R.shape[1]
@@ -62,7 +62,7 @@ def construct_Z_matrix(R, model, num_latents=3):
     Z = np.zeros((num_trials, max_trial_length, num_latents))
 
     for trial in range(num_trials):
-        z = model.networks[1].layers[0](torch.from_numpy(R[trial, :, :]).float()) # need to cast back to float
+        z = model.networks[ac_network].layers[0](torch.from_numpy(R[trial, :, :]).float()) # need to cast back to float
         z = [z_i.detach().numpy() for z_i in z]  # convert each to a numpy array
         Z[trial, :, :] = z
     return Z
