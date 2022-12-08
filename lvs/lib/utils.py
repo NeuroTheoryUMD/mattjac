@@ -1,5 +1,6 @@
 import pickle
 import torch
+import pandas as pd
 import numpy as np
 
 import NTdatasets.HN.HNdatasets as datasets
@@ -28,6 +29,61 @@ def enpickle(obj, filename):
 def depickle(filename):
     with open(filename, 'rb') as f:
         return pickle.load(f)
+
+# make a DataFrame out of the NDNT dataset
+# specifically designed for the HN data right now
+def dataframe(data):
+    time = np.zeros(data.NT)
+    time[:] = -1  # set all times to -1 so that empty rows are not treated incorrectly
+    for i in range(len(data.block_inds)):
+        for j, t in enumerate(data.block_inds[i]):
+            time[t] = j  # count up from 0 to length of trial
+    
+    trials = np.zeros(data.NT)
+    trials[:] = -1  # set all trials to -1 so that empty rows are not treated incorrectly
+    for i, trial in enumerate(data.block_inds):
+        trials[trial] = i
+    
+    cued = np.zeros(data.NT)
+    for i in range(0, len(data.block_inds)):
+        cued[data.block_inds[i]] = data.TRcued[i]
+    
+    choice = np.zeros(data.NT)
+    for i in range(0, len(data.block_inds)):
+        choice[data.block_inds[i]] = data.TRchoice[i]
+    
+    strengthL = np.zeros(data.NT)
+    for i in range(0, len(data.block_inds)):
+        strengthL[data.block_inds[i]] = data.TRstrength[i, 0]
+    strengthR = np.zeros(data.NT)
+    for i in range(0, len(data.block_inds)):
+        strengthR[data.block_inds[i]] = data.TRstrength[i, 1]
+    
+    signalL = np.zeros(data.NT)
+    for i in range(0, len(data.block_inds)):
+        signalL[data.block_inds[i]] = data.TRsignal[i, 0]
+    signalR = np.zeros(data.NT)
+    for i in range(0, len(data.block_inds)):
+        signalR[data.block_inds[i]] = data.TRsignal[i, 1]
+    
+    # put the data into a Pandas DataFrame for easier slicing and dicing
+    d = pd.DataFrame({
+        "time": time,
+        "trial": trials,
+        # "stim": [pd.Series(data.stim[i].numpy()) for i in range(0, data.NT)], # this seems unnecessary for now
+        "cued": cued,
+        "choice": choice,
+        "strengthL": strengthL,
+        "strengthR": strengthR,
+        "signalL": signalL,
+        "signalR": signalR
+    })
+    
+    # add the robs to the dataframe
+    for cell in range(data.robs.shape[1]):
+        d['r'+str(cell)] = data.robs[:, cell]
+
+    return d
 
 
 def construct_R_matrix(data):
