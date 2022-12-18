@@ -3,8 +3,8 @@
 *.ipynb_checkpoints
 *.txt
 *.pickle
-lvs/NDNT
-lvs/NTdatasets
+lvs/lib/NDNT
+lvs/lib/NTdatasets
 lvs/checkpoints
 lvs/__pycache__
 lvs/lib/__pycache__

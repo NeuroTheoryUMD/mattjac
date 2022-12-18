@@ -9,7 +9,7 @@ import NTdatasets.HN.HNdatasets as datasets
 def load_data(_filename, _num_lags=12):
     # load the data from the file
     data = datasets.HNdataset(filename=_filename,
-                              datadir='../../data/hn/',
+                              datadir='../../../data/hn/',
                               drift_interval=90)
     data.prepare_stim(which_stim='left', num_lags=_num_lags)
     return data
