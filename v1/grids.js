@@ -6,7 +6,7 @@ define('grids', ['d3'], function (d3) {
     
         // TODO: remove this bad global var
         var cells = [];
-    
+        
         function gridData(layers) {
             console.log(layers);
             console.log(edges);
@@ -21,6 +21,10 @@ define('grids', ['d3'], function (d3) {
                 console.log('==LAYER==',layer);
                 var boxes = layers[layer]; // get the boxes out of the layer
                 var num_boxes = boxes.length;
+                
+                // TODO: don't divide, 
+                // instead make it scaled evenly and have it multiply this until
+                // we pass the desired width/height, and choose the last fitting multiple 
                 
                 var layer_height = height/layers.length - layer_padding;
                 console.log('layer_height=',layer_height);
@@ -57,7 +61,7 @@ define('grids', ['d3'], function (d3) {
                                     height: h,
                                     click: click,
                                     id: "c"+id,
-                                    assoc: edges["c"+id],
+                                    assoc: edges[id],
                                     color: "rgb("+255*val+","+255*val+","+255*val+")",
                                     val: val
                                 };
@@ -111,16 +115,20 @@ define('grids', ['d3'], function (d3) {
         	//.style("stroke", "#222")
         	.on('mouseover', function(d) {
         	    console.log('d', d);
-                for (var c=0; c < d.assoc.length; c++) {
-                    d3.select('#c'+d.assoc[c])
+                for (var c in d.assoc) {
+                    var weight = Math.round(127 - 127*d.assoc[c]*cells[c].val);
+                    var color = "rgb("+weight+",0,0)";
+                    //console.log('c', c, 'w', weight, 'color', color);
+                    d3.select('#c'+c)
                       .transition('fade').duration(200)
                       .attr("opacity", 1.0)
-                      .style("fill", "rgb(255,0,0)");
+                      //.style("fill", "rgb(255,0,0)");
+                      .style("fill", color);
                 }
             })
             .on('mouseout', function(d) {
-                for (var c=0; c < d.assoc.length; c++) {
-                    d3.select('#c'+d.assoc[c])
+                for (var c in d.assoc) {
+                    d3.select('#c'+c)
                       .transition('fade').duration(200)
                       .attr("opacity", 1.0)
                       .style("fill", cells[c].color);
