@@ -2,10 +2,19 @@
 require.undef('grids');
 
 define('grids', ['d3'], function (d3) {
-    function draw(container, layers, edges, width, height, layer_dims, padding, layer_padding) {
+    function draw(container, layers, edges, width, layer_heights, layer_dims, padding, layer_padding) {
     
         // TODO: remove this bad global var
         var cells = [];
+        
+        // calculate total layer height
+        var height = 0;
+        for (var layer in layers) {
+            height += layer_heights[layer];
+            height += layer_padding;
+        }
+        // remove padding at the end
+        height -= layer_padding;
         
         function gridData(layers) {
             console.log(layers);
@@ -26,31 +35,47 @@ define('grids', ['d3'], function (d3) {
                 // instead make it scaled evenly and have it multiply this until
                 // we pass the desired width/height, and choose the last fitting multiple 
                 
-                var layer_height = height/layers.length - layer_padding;
+                console.log(layer_heights);
+                var layer_height = layer_heights[layer];
                 console.log('layer_height=',layer_height);
-                var width_minus_padding = (width-(padding*(cols-1)));
-                console.log('layer_padding='+layer_padding);
-                var layer_height_minus_padding = layer_height - (padding*(rows-1));
-                console.log('width_minus_padding = ' + width_minus_padding);
-                console.log('heigt_minus_padding = ' + layer_height_minus_padding);
+                
+                var sqrows = boxes[0].length;
+                var sqcols = boxes[0][0].length;
+                // figure out the max integer width to avoid using floats with pixels
+                // computed_width = cols*col_width + (num_boxes-1)*padding
+                var box_width = 2;
+                while (cols*(box_width+2)*sqcols + (cols-1)*padding <= width) {
+                    box_width += 2;
+                    console.log(cols*box_width*sqcols, (cols-1)*padding);
+                }
+                // TODO: don't need to compute these separately if aspect='square'
+                // computed_layer_height = rows*row_height + (num_boxes-1)*padding
+                var box_height = 2;
+                while (rows*(box_height+2)*sqrows + (rows-1)*padding <= layer_height) {
+                    box_height += 2;
+                }
+                
+                console.log('box_width', box_width, 'box_height', box_height);
                 
                 var box = 0;
                 // iterate over rows
                 for (var row = 0; row < rows; row++) {
                     for (var col = 0; col < cols; col++) {
-                        var sqrows = boxes[0].length;
-                        var sqcols = boxes[0][0].length;
                         console.log('row='+row+', col='+col);
-                        var ypos = row*(layer_height/rows) + layer*layer_height + layer*layer_padding;
-                        var xpos = col*(width/cols);
+                        var prev_layer_height = 0;
+                        if (layer > 0) {
+                            prev_layer_height = layer_heights[layer-1];
+                        }
+                        var ypos = row*box_height*sqrows + row*padding + layer*prev_layer_height + layer*layer_padding;
+                        var xpos = col*box_width*sqcols + col*padding;
                         
                         console.log('x',xpos,'y',ypos);
                         
                         for (var sqrow = 0; sqrow < sqrows; sqrow++) {
                             for (var sqcol = 0; sqcol < sqcols; sqcol++) {
-                                var w = width_minus_padding/cols/sqcols;
-                                var h = layer_height_minus_padding/rows/sqrows;
-                                console.log('w='+w+',h='+h);
+                                var w = box_width;
+                                var h = box_height;
+                                //console.log('w='+w+',h='+h);
                                 var click = 0;
                                 var val = boxes[box][sqrow][sqcol];
                                 
@@ -75,7 +100,7 @@ define('grids', ['d3'], function (d3) {
                                 id++; // incremenent the global id for the next cell
                             }
                             // reset the x position after a row is complete
-                            xpos = col * width/cols;
+                            xpos = col*box_width*sqcols + col*padding;
                             // increment the y position for the next row. Move it down by h
                             ypos += h;
                         }
@@ -118,12 +143,12 @@ define('grids', ['d3'], function (d3) {
                     .transition('fade').duration(200)
                     .style('fill', 'rgb(255,0,0)')
                     .style("opacity", 1)
-                    .attr("x", d.x - 5)
-                    .attr("y", d.y - 5)
-                    .attr("width", d.width + 10)
-                    .attr("height", d.height + 10)
+                    .attr("x", d.x - 2)
+                    .attr("y", d.y - 2)
+                    .attr("width", d.width + 4)
+                    .attr("height", d.height + 4)
                     .style("stroke", "#222");
-        	    console.log('d', d);
+        	    //console.log('d', d);
                 for (var c in d.assoc) {
                     var weight = Math.round(127 - 127*d.assoc[c]*cells[c].val);
                     var color = "rgb("+weight+",0,0)";
