@@ -112,26 +112,45 @@ define('grids', ['d3'], function (d3) {
         	.attr("width", function(d) { return d.width; })
         	.attr("height", function(d) { return d.height; })
         	.style("fill", function(d) { return d.color; })
-        	//.style("stroke", "#222")
         	.on('mouseover', function(d) {
+        	    // highlight the cell as well
+        	    d3.select(this)
+                    .transition('fade').duration(200)
+                    .style('fill', 'rgb(255,0,0)')
+                    .style("opacity", 1)
+                    .attr("x", d.x - 5)
+                    .attr("y", d.y - 5)
+                    .attr("width", d.width + 10)
+                    .attr("height", d.height + 10)
+                    .style("stroke", "#222");
         	    console.log('d', d);
                 for (var c in d.assoc) {
                     var weight = Math.round(127 - 127*d.assoc[c]*cells[c].val);
                     var color = "rgb("+weight+",0,0)";
                     //console.log('c', c, 'w', weight, 'color', color);
                     d3.select('#c'+c)
-                      .transition('fade').duration(200)
-                      .attr("opacity", 1.0)
-                      //.style("fill", "rgb(255,0,0)");
-                      .style("fill", color);
+                        .transition('fade').duration(200)
+                        .attr("opacity", 1.0)
+                        //.style("fill", "rgb(255,0,0)");
+                        .style("fill", color);
                 }
             })
             .on('mouseout', function(d) {
+                // reset the cell's color 
+                d3.select(this)
+                    .transition('fade').duration(200)
+                    .style('fill', d.color)
+                    .style("opacity", 1)
+                    .attr("x", d.x)
+                    .attr("y", d.y)
+                    .attr("width", d.width)
+                    .attr("height", d.height)
+                    .style("stroke", "none");
                 for (var c in d.assoc) {
                     d3.select('#c'+c)
-                      .transition('fade').duration(200)
-                      .attr("opacity", 1.0)
-                      .style("fill", cells[c].color);
+                        .transition('fade').duration(200)
+                        .attr("opacity", 1.0)
+                        .style("fill", cells[c].color);
                 }
             });
     }
