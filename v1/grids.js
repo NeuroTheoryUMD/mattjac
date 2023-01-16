@@ -30,11 +30,7 @@ define('grids', ['d3'], function (d3) {
                 console.log('==LAYER==',layer);
                 var boxes = layers[layer]; // get the boxes out of the layer
                 var num_boxes = boxes.length;
-                
-                // TODO: don't divide, 
-                // instead make it scaled evenly and have it multiply this until
-                // we pass the desired width/height, and choose the last fitting multiple 
-                
+                 
                 console.log(layer_heights);
                 var layer_height = layer_heights[layer];
                 console.log('layer_height=',layer_height);
@@ -43,16 +39,16 @@ define('grids', ['d3'], function (d3) {
                 var sqcols = boxes[0][0].length;
                 // figure out the max integer width to avoid using floats with pixels
                 // computed_width = cols*col_width + (num_boxes-1)*padding
-                var box_width = 2;
-                while (cols*(box_width+2)*sqcols + (cols-1)*padding <= width) {
-                    box_width += 2;
+                var box_width = 1;
+                while (cols*(box_width+1)*sqcols + (cols-1)*padding <= width) {
+                    box_width += 1;
                     console.log(cols*box_width*sqcols, (cols-1)*padding);
                 }
                 // TODO: don't need to compute these separately if aspect='square'
                 // computed_layer_height = rows*row_height + (num_boxes-1)*padding
-                var box_height = 2;
-                while (rows*(box_height+2)*sqrows + (rows-1)*padding <= layer_height) {
-                    box_height += 2;
+                var box_height = 1;
+                while (rows*(box_height+1)*sqrows + (rows-1)*padding <= layer_height) {
+                    box_height += 1;
                 }
                 
                 console.log('box_width', box_width, 'box_height', box_height);
@@ -87,7 +83,7 @@ define('grids', ['d3'], function (d3) {
                                     click: click,
                                     id: "c"+id,
                                     assoc: edges[id],
-                                    color: "rgb("+255*val+","+255*val+","+255*val+")",
+                                    color: "rgb("+(127+128*val)+","+(127+128*val)+","+(127+128*val)+")",
                                     val: val
                                 };
                                 
@@ -150,8 +146,8 @@ define('grids', ['d3'], function (d3) {
                     .style("stroke", "#222");
         	    //console.log('d', d);
                 for (var c in d.assoc) {
-                    var weight = Math.round(127 - 127*d.assoc[c]*cells[c].val);
-                    var color = "rgb("+weight+",0,0)";
+                    var weight = Math.round(127 + 128*d.assoc[c]*cells[c].val);
+                    var color = "rgb("+weight+","+weight+","+weight+")";
                     //console.log('c', c, 'w', weight, 'color', color);
                     d3.select('#c'+c)
                         .transition('fade').duration(200)
