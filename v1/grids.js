@@ -40,6 +40,8 @@ define('grids', ['d3'], function (d3) {
                 // figure out the max integer width to avoid using floats with pixels
                 // computed_width = cols*col_width + (num_boxes-1)*padding
                 var box_width = 1;
+                console.log('sqcols',sqcols);
+                console.log(cols*(box_width+1)*sqcols);
                 while (cols*(box_width+1)*sqcols + (cols-1)*padding <= width) {
                     box_width += 1;
                     console.log(cols*box_width*sqcols, (cols-1)*padding);
@@ -57,6 +59,11 @@ define('grids', ['d3'], function (d3) {
                 // iterate over rows
                 for (var row = 0; row < rows; row++) {
                     for (var col = 0; col < cols; col++) {
+                        // stop adding new squares if we run out of them
+                        if (box >= num_boxes) {
+                            break;
+                        }
+                    
                         console.log('row='+row+', col='+col);
                         var prev_layer_height = 0;
                         if (layer > 0) {
@@ -137,35 +144,35 @@ define('grids', ['d3'], function (d3) {
         	    // highlight the cell as well
         	    d3.select(this)
                     .transition('fade').duration(200)
-                    .style('fill', 'rgb(255,0,0)')
                     .style("opacity", 1)
-                    .attr("x", d.x - 2)
-                    .attr("y", d.y - 2)
-                    .attr("width", d.width + 4)
-                    .attr("height", d.height + 4)
-                    .style("stroke", "#222");
+                    //.style('fill', 'rgb(255,0,0)')
+                    //.attr("x", d.x - 2)
+                    //.attr("y", d.y - 2)
+                    //.attr("width", d.width + 4)
+                    //.attr("height", d.height + 4)
+                    .style("stroke", "rgb(255,0,0)");
         	    //console.log('d', d);
                 for (var c in d.assoc) {
                     var weight = Math.round(127 + 128*d.assoc[c]*cells[c].val);
-                    var color = "rgb("+weight+","+weight+","+weight+")";
-                    //console.log('c', c, 'w', weight, 'color', color);
+                    var reweighted_color = "rgb("+weight+","+weight+","+weight+")";
+                    console.log('c', c, 'w', weight, 'color', reweighted_color);
                     d3.select('#c'+c)
                         .transition('fade').duration(200)
                         .attr("opacity", 1.0)
                         //.style("fill", "rgb(255,0,0)");
-                        .style("fill", color);
+                        .style("fill", reweighted_color);
                 }
             })
             .on('mouseout', function(d) {
                 // reset the cell's color 
                 d3.select(this)
                     .transition('fade').duration(200)
-                    .style('fill', d.color)
                     .style("opacity", 1)
-                    .attr("x", d.x)
-                    .attr("y", d.y)
-                    .attr("width", d.width)
-                    .attr("height", d.height)
+                    //.style('fill', d.color)
+                    //.attr("x", d.x)
+                    //.attr("y", d.y)
+                    //.attr("width", d.width)
+                    //.attr("height", d.height)
                     .style("stroke", "none");
                 for (var c in d.assoc) {
                     d3.select('#c'+c)
