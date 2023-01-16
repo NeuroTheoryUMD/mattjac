@@ -70,9 +70,11 @@ define('grids', ['d3'], function (d3) {
                         var prev_layer_heights = 0;
                         for (var prev_layer = 0; prev_layer < layer; prev_layer++) {
                             prev_layer_heights += layer_heights[prev_layer];
+                            prev_layer_heights += layer_padding;
                         }
                         
-                        var ypos = row*box_height*sqrows + row*padding + prev_layer_heights + layer*layer_padding;
+                        console.log('prev_layer_heights', prev_layer_heights);
+                        var ypos = row*box_height*sqrows + row*padding + prev_layer_heights;
                         var xpos = col*box_width*sqcols + col*padding;
                         
                         console.log('x',xpos,'y',ypos);
@@ -154,7 +156,7 @@ define('grids', ['d3'], function (d3) {
                     //.attr("width", d.width + 4)
                     //.attr("height", d.height + 4)
                     .style("stroke", "rgb(255,0,0)");
-        	    //console.log('d', d);
+        	    //console.log('d', d.assoc);
                 for (var c in d.assoc) {
                     var weight = Math.round(127 + 128*d.assoc[c]*cells[c].val);
                     var reweighted_color = "rgb("+weight+","+weight+","+weight+")";
@@ -189,4 +191,4 @@ define('grids', ['d3'], function (d3) {
     return draw;
 });
 
-element.append('<small>&#x25C9; &#x25CB; &#x25EF; Loaded gridex.js &#x25CC; &#x25CE; &#x25CF;</small>');
+element.append('<small>&#x25C9; &#x25CB; &#x25EF; Loaded grids.js &#x25CC; &#x25CE; &#x25CF;</small>');
