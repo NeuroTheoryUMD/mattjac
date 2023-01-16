@@ -44,7 +44,7 @@ define('grids', ['d3'], function (d3) {
                 console.log(cols*(box_width+1)*sqcols);
                 while (cols*(box_width+1)*sqcols + (cols-1)*padding <= width) {
                     box_width += 1;
-                    console.log(cols*box_width*sqcols, (cols-1)*padding);
+                    //console.log(cols*box_width*sqcols, (cols-1)*padding);
                 }
                 // TODO: don't need to compute these separately if aspect='square'
                 // computed_layer_height = rows*row_height + (num_boxes-1)*padding
@@ -65,11 +65,14 @@ define('grids', ['d3'], function (d3) {
                         }
                     
                         console.log('row='+row+', col='+col);
-                        var prev_layer_height = 0;
-                        if (layer > 0) {
-                            prev_layer_height = layer_heights[layer-1];
+                        
+                        // sum the previous layer_heights to determine the current layer starting position
+                        var prev_layer_heights = 0;
+                        for (var prev_layer = 0; prev_layer < layer; prev_layer++) {
+                            prev_layer_heights += layer_heights[prev_layer];
                         }
-                        var ypos = row*box_height*sqrows + row*padding + layer*prev_layer_height + layer*layer_padding;
+                        
+                        var ypos = row*box_height*sqrows + row*padding + prev_layer_heights + layer*layer_padding;
                         var xpos = col*box_width*sqcols + col*padding;
                         
                         console.log('x',xpos,'y',ypos);
@@ -143,8 +146,8 @@ define('grids', ['d3'], function (d3) {
         	.on('mouseover', function(d) {
         	    // highlight the cell as well
         	    d3.select(this)
-                    .transition('fade').duration(200)
-                    .style("opacity", 1)
+                    //.transition('fade').duration(200)
+                    //.style("opacity", 1)
                     //.style('fill', 'rgb(255,0,0)')
                     //.attr("x", d.x - 2)
                     //.attr("y", d.y - 2)
@@ -155,7 +158,7 @@ define('grids', ['d3'], function (d3) {
                 for (var c in d.assoc) {
                     var weight = Math.round(127 + 128*d.assoc[c]*cells[c].val);
                     var reweighted_color = "rgb("+weight+","+weight+","+weight+")";
-                    console.log('c', c, 'w', weight, 'color', reweighted_color);
+                    //console.log('c', c, 'w', weight, 'color', reweighted_color);
                     d3.select('#c'+c)
                         .transition('fade').duration(200)
                         .attr("opacity", 1.0)
@@ -166,8 +169,8 @@ define('grids', ['d3'], function (d3) {
             .on('mouseout', function(d) {
                 // reset the cell's color 
                 d3.select(this)
-                    .transition('fade').duration(200)
-                    .style("opacity", 1)
+                    //.transition('fade').duration(200)
+                    //.style("opacity", 1)
                     //.style('fill', d.color)
                     //.attr("x", d.x)
                     //.attr("y", d.y)
