@@ -8,6 +8,12 @@ import math
 import networkx as nx
 import NDNT.NDNT as NDN
 
+# light and dark modes
+def lightmode():
+    plt.style.use('default')
+def darkmode():
+    # use dark background for all our plots, because it is better
+    plt.style.use('dark_background')
 
 # make new figure for simplicity
 def fig(w=20, h=10):
@@ -50,17 +56,6 @@ def list_to_grid(objects, width):
             else:
                 grid[i].append(None)
     return grid, height
-
-
-def plot_glm_filters(glm, nc):
-    ws = glm.get_weights()
-    utils.ss(5,6)
-
-    for cc in range(nc):
-        plt.subplot(5,6, cc+1)
-        utils.imagesc(ws[:,:,cc])
-        plt.colorbar()
-    plt.show()
 
 
 # use networkx to draw the network to see what it looks like
@@ -110,58 +105,108 @@ def draw_model(model, names=None):
 
 
 
-def plot_layers(layers):
+# gets the position in a grid
+def get_pos(shape, row, col, row_step=1):
+    assert len(shape) == 2, "shape must have (num_rows, num_cols)"
+    num_rows, num_cols = shape
+    # divide row / row_step to get the actual number of rows
+    # since each row has row_step # of things stacked in it
+    actual_rows = row//row_step
+    return actual_rows*num_cols + col
+
+# plots the layers of the NIM that have been passed to it
+# Example usage:
+# layer0 = nim.networks[0].layers[0].get_weights()
+# layer1 = nim.networks[0].layers[1].get_weights()
+# output = nim.networks[0].layers[2].get_weights()
+# m.plot_layers([layer0, layer1, output], shapes=[(1,8), (2,4), (2,6)])
+def plot_layersNIM(layers, shapes):
     # plot receptive field at intermediate layers (weighted average of previous layers per column)
-    plt.style.use('dark_background')
-    
-    shapes = [(1,8), (1,11)]
+    prev_weighted_subs = []
     for l in range(len(layers)): # go through each layer
+        # make the previous_weighted_subs more useable, if they exist yet
+        if len(prev_weighted_subs) > 0:
+            prev_weighted_subs = np.array(prev_weighted_subs)
+            prev_weighted_subs = np.swapaxes(prev_weighted_subs, 0,2)
+        # empty the current subs to be able to pass them along
+        current_subs = []
+        
         layer = layers[l]
         num_rows,num_cols = shapes[l]
     
         # multiply the previous layer features by the subunit's weighting of it
         if l == 0: # plot the first layer
-            fig, axes = plt.subplots(num_rows,num_cols, figsize=(num_cols*2,num_rows*2))
+            fig = plt.figure(figsize=(num_cols*2,num_rows*2))
             fig.suptitle('layer ' + str(l))
     
             layer = np.swapaxes(layer, 0,1) # rotate the image
-            #g = isns.ImageGrid(layer, axis=len(layer.shape)-1, cbar=False, col_wrap=cols[l], cmap='inferno', vmax=imax, vmin=imin)
-            for sub in range(layer.shape[-1]): # go through each subunit
-                ax = axes.flatten()[sub]
-                # to index the last axis for arrays with any number of axes
-                subunit = layer.take(indices=sub, axis=len(layer.shape)-1) # equivalent to layer[:,:,sub]
-                imin = np.min(subunit.flatten())
-                imax = np.max(subunit.flatten())
-                #isns.imshow(subunit, ax=axes.flatten()[sub], cbar=False, vmin=imin, vmax=imax)
-                ax.set_axis_off() # remove axis
-                ax.imshow(subunit, vmin=imin, vmax=imax, aspect='auto', cmap='inferno')
+            grid = plt.GridSpec(num_rows, num_cols, wspace=0.4, hspace=0.3)
+            for i in range(num_rows):
+                for j in range(num_cols):
+                    pos = get_pos((num_rows,num_cols), i,j)
+                    # stop plotting if there are no more subunits in the layer
+                    if pos > layer.shape[-1]-1:
+                        break
+                    ax = fig.add_subplot(grid[i,j])
+                    # to index the last axis for arrays with any number of axes
+                    subunit = layer.take(indices=pos, axis=len(layer.shape)-1) # equivalent to layer[:,:,sub]
+                    current_subs.append(subunit)
+                    imin = np.min(subunit.flatten())
+                    imax = np.max(subunit.flatten())
+                    #isns.imshow(subunit, ax=axes.flatten()[sub], cbar=False, vmin=imin, vmax=imax)
+                    ax.set_axis_off() # remove axis
+                    ax.imshow(subunit, vmin=imin, vmax=imax, aspect='auto', cmap='inferno')
     
         else:
-            fig, axes = plt.subplots(num_rows+1,num_cols,
-                                     figsize=(num_cols*2,(num_rows+1)*1.2),
-                                     gridspec_kw={'height_ratios': [1, 5]})
+            fig = plt.figure(figsize=(num_cols*2,(num_rows+1)*1.2))
             fig.suptitle('layer ' + str(l))
     
             # plot the subunit weights
-            axidx = 0
-            for sub in range(layer.shape[1]): # for each subunit
-                ax = axes.flatten()[axidx]
-                weights = np.expand_dims(layer[:,sub], 0)
-                imin = np.min(weights.flatten())
-                imax = np.max(weights.flatten())
-                ax.set_axis_off() # remove axis
-                ax.imshow(weights, vmin=imin, vmax=imax, cmap='inferno')
-                axidx += 1
-    
-            # plot the subunit weightings in the subsequent layers
-            for sub in range(layer.shape[1]): # for each subunit
-                ax = axes.flatten()[axidx]
-                weighted_sub = np.mean(layer[:,sub] * layers[l-1], axis=len(layers[l-1].shape)-1)
-                weighted_sub = np.swapaxes(weighted_sub, 0,1)
-                imin = np.min(weighted_sub.flatten())
-                imax = np.max(weighted_sub.flatten())
-                ax.set_axis_off() # remove axis
-                ax.imshow(weighted_sub, vmin=imin, vmax=imax, aspect='auto', cmap='inferno')
-                axidx += 1
+            grid = plt.GridSpec(num_rows*2, num_cols, wspace=0.4, hspace=0.3)
+            
+            num_subunits = layer.shape[-1]-1
+            double_num_rows = num_rows*2 # to plot 2 things in each column
+            for i in range(0, num_rows*2, 2): # go through two rows at a time
+                for j in range(0, num_cols):
+                    # draw the backward weights
+                    # get the position given that we are stepping 2 for each col
+                    pos = get_pos((num_rows,num_cols), i,j, row_step=2)
+                    # stop plotting if there are no more subunits in the layer
+                    if pos > num_subunits:
+                        break
+                    
+                    ax = fig.add_subplot(grid[i,j])
+                    # if the weights are 1D
+                    if len(layer[:,pos].shape) == 1:
+                        # expand their dimensions to make them 2D to plot
+                        weights = np.expand_dims(layer[:,pos], 0)
+                    else:
+                        # if they are 2D, just display them
+                        weights = layer[:,pos]
+                    imin = np.min(weights.flatten())
+                    imax = np.max(weights.flatten())
+                    ax.set_axis_off() # remove axis
+                    ax.imshow(weights, vmin=imin, vmax=imax, cmap='inferno')
+            
+                    # draw the weighted average of the previous filters
+                    # as a linear-approximation of what this filter does
+                    ax = fig.add_subplot(grid[i+1,j])
+                    # TODO: this is gross
+                    if l == 1:
+                        weighted_sub = np.mean(layer[:,pos] * layers[l-1], axis=len(layers[l-1].shape)-1)
+                    else:
+                        weighted_sub = np.mean(weights * prev_weighted_subs, axis=len(layers[l-1].shape)-1)
+                    current_subs.append(weighted_sub)
+                    if l == 1:
+                        # swap axes again if this is the second layer
+                        weighted_sub = weighted_sub.swapaxes(0,1)
+                    imin = np.min(weighted_sub.flatten())
+                    imax = np.max(weighted_sub.flatten())
+                    ax.set_axis_off() # remove axis
+                    ax.imshow(weighted_sub, vmin=imin, vmax=imax, aspect='auto', cmap='inferno')
+        
+        # pass the current subs along to the next layer
+        prev_weighted_subs = current_subs
     
     plt.show()
+
