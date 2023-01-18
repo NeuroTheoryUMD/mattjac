@@ -9,6 +9,8 @@ import networkx as nx
 import NDNT.NDNT as NDN
 from matplotlib.patches import ConnectionPatch
 import torch
+import tqdm
+import os
 
 
 # light and dark modes
@@ -214,10 +216,9 @@ def plot_layersNIM(layers, shapes):
     plt.show()
 
 
-
-def simulate_network(input, stim_dims,
+def simulate_network(inp, stim_dims,
                      model,
-                     figsize=(5,5), 
+                     figsize=(5,5),
                      title=None,
                      max_cols=8,
                      cmap='gray',
@@ -226,6 +227,39 @@ def simulate_network(input, stim_dims,
                      wspace=0.4,
                      hspace=0.3,
                      verbose=False):
+    # give the input an extra dimension for plotting
+    inps = inp.unsqueeze(0)
+    # pass none for savefig_loc since we don't expect to save the figure here
+    return simulate_network_batch(inps, stim_dims, model, None,
+                                  figsize, title, max_cols, cmap,
+                                  linewidth, linecolor,
+                                  wspace, hspace, verbose)
+    
+
+def simulate_network_batch(inps, stim_dims,
+                           model,
+                           savefig_loc=None,
+                           figsize=(5,5),
+                           title=None,
+                           max_cols=8,
+                           cmap='gray',
+                           linewidth=3,
+                           linecolor='red',
+                           wspace=0.4,
+                           hspace=0.3,
+                           verbose=False):
+
+    model_filename = os.path.basename(savefig_loc)
+    
+    # make the savefig directory if it does not exist
+    if not os.path.exists(savefig_loc):
+        # make intermediate directories as well
+        os.makedirs(savefig_loc)
+    frame_dir = os.path.join(savefig_loc, model_filename+'_frames')
+    if not os.path.exists(frame_dir):
+        os.mkdir(frame_dir)
+
+    # get all the layers
     # count layers to get number of rows
     # get the layers
     layers = []
@@ -233,33 +267,67 @@ def simulate_network(input, stim_dims,
         for l in range(len(model.networks[n].layers)):
             layer = model.networks[n].layers[l].get_weights()
             layers.append(layer)
-    
-    # give the input an extra dimension for plotting
-    input = input.unsqueeze(0)
-    
-    # get the outputs
-    prev_output = input
-    outputs = []
+
+    # get all the outputs
+    prev_output = inps
+    all_outputs = []
     for n in range(len(model.networks)):
-        # TODO: calculate the outputs in batch and pass them in
-        #       to greatly speed this process up
-        # TODO: for scaffold networks,
-        #       if the previous network is defined as a scaffold,
-        #       then, concatenate all previous outputs together before calling forward
-        # TODO: for parallel networks,
-        #       come up with a way to visualize these parallel networks on the same row
         for l in range(len(model.networks[n].layers)):
             z = model.networks[n].layers[l](prev_output)
             # TODO: not entirely sure if I need to detach twice
-            z_cpu = torch.tensor([z_i.detach().numpy() for z_i in z])
-            outputs.append(z_cpu.numpy())
+            z_cpu = torch.tensor(np.array([z_i.detach().numpy() for z_i in z]))
+            all_outputs.append(z_cpu.numpy())
             if verbose:
                 print(prev_output.shape, '-->', z_cpu.shape)
             prev_output = z_cpu
     
+    figs = []
+    for i in tqdm.tqdm(range(inps.shape[0])):
+        inp = inps[i]
+        # outputs is layers x num_inputs x dims
+        # but we want, num_inputs x layers x dims
+        # get the outputs for the current input i for each layer
+        # expand each output dims to be 1xdim as well
+        outputs = [np.expand_dims(all_outputs[l][i],0) for l in range(len(layers))]
+        
+        fig = render_network(inp, stim_dims,
+                              outputs, layers,
+                              figsize, title, max_cols, cmap,
+                              linewidth, linecolor,
+                              wspace, hspace, verbose)
+        # save the fig to the frame directory
+        if savefig_loc is not None:
+            with open(os.path.join(frame_dir, str(i)+'.png'), 'wb') as f:
+                fig.savefig(f)
+            plt.close(fig) # close the fig, so we don't render it every time
+        figs.append(fig)
+
+    # save to video with ffmpeg
+    os.system("ffmpeg -f image2 -r 5/1 -i ./"+savefig_loc+"/"+model_filename+"_frames/%d.png -vcodec mpeg4 -y "+savefig_loc+"/"+model_filename+".mp4")
+    
+    return figs
+    
+
+def render_network(inp, stim_dims,
+                   outputs, layers,
+                   figsize=(5,5),
+                   title=None,
+                   max_cols=8,
+                   cmap='gray',
+                   linewidth=3,
+                   linecolor='red',
+                   wspace=0.4,
+                   hspace=0.3,
+                   verbose=False):
+    # TODO: for scaffold networks,
+    #       if the previous network is defined as a scaffold,
+    #       then, concatenate all previous outputs together before calling forward
+    # TODO: for parallel networks,
+    #       come up with a way to visualize these parallel networks on the same row
+    
     # reshape the input to make it presentable
     input_dims = stim_dims[1], stim_dims[3]
-    input = input.numpy().reshape(input_dims).T
+    inp = inp.numpy().reshape(input_dims).T
     
     # make the figure and axes
     fig, axs = plt.subplots(nrows=len(layers)+1, ncols=1,
@@ -274,10 +342,10 @@ def simulate_network(input, stim_dims,
     subfig.suptitle('Stimulus')
     input_ax = subfig.add_subplot()
     # to index the last axis for arrays with any number of axes
-    imin = np.min(input.flatten())
-    imax = np.max(input.flatten())
+    imin = np.min(inp.flatten())
+    imax = np.max(inp.flatten())
     input_ax.set_axis_off() # remove axis
-    input_ax.imshow(input, vmin=imin, vmax=imax, 
+    input_ax.imshow(inp, vmin=imin, vmax=imax, 
                     aspect='auto', cmap='binary')
     
     # plot the layers and outputs
@@ -333,18 +401,19 @@ def simulate_network(input, stim_dims,
                 output_ax.imshow(output, vmin=imin, vmax=imax, aspect='auto', cmap=cmap)
     
                 # draw line between input and output
-                centerTopX = (box.shape[1]-1) // 2
-                centerTopY = box.shape[0]-1
-                centerBottomX = (output.shape[1]-1) // 2
-                centerBottomY = output.shape[0]-1
-                centerTopPoint = (centerTopX, centerTopY)
-                centerBottomPoint = (centerBottomX, centerBottomY)
-                con = ConnectionPatch(xyA=centerTopPoint, xyB=centerBottomPoint,
-                                      coordsA="data", coordsB="data",
-                                      axesA=box_ax, axesB=output_ax,
-                                      color=linecolor, arrowstyle='->', 
-                                      linewidth=linewidth)
-                output_ax.add_artist(con)
+                # centerTopX = (box.shape[1]-1) // 2
+                # centerTopY = box.shape[0]-1
+                # centerBottomX = (output.shape[1]-1) // 2
+                # centerBottomY = output.shape[0]-1
+                # centerTopPoint = (centerTopX, centerTopY)
+                # centerBottomPoint = (centerBottomX, centerBottomY)
+                # TODO: fix the arrow drawing
+                # con = ConnectionPatch(xyA=centerTopPoint, xyB=centerBottomPoint,
+                #                       coordsA="data", coordsB="data",
+                #                       axesA=box_ax, axesB=output_ax,
+                #                       color=linecolor, arrowstyle='->', 
+                #                       linewidth=linewidth)
+                # output_ax.add_artist(con)
     
                 box_idx += 1 # move onto the next box
         current_row += 2
