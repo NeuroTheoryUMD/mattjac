@@ -230,7 +230,8 @@ def simulate_network(inp, stim_dims,
     # give the input an extra dimension for plotting
     inps = inp.unsqueeze(0)
     # pass none for savefig_loc since we don't expect to save the figure here
-    return simulate_network_batch(inps, stim_dims, model, None,
+    # set start_idx to 0
+    return simulate_network_batch(inps, stim_dims, model, 0, None,
                                   figsize, title, max_cols, cmap,
                                   linewidth, linecolor,
                                   wspace, hspace, verbose)
@@ -238,6 +239,7 @@ def simulate_network(inp, stim_dims,
 
 def simulate_network_batch(inps, stim_dims,
                            model,
+                           start_idx=0,
                            savefig_loc=None,
                            figsize=(5,5),
                            title=None,
@@ -249,15 +251,17 @@ def simulate_network_batch(inps, stim_dims,
                            hspace=0.3,
                            verbose=False):
 
-    model_filename = os.path.basename(savefig_loc)
-    
-    # make the savefig directory if it does not exist
-    if not os.path.exists(savefig_loc):
-        # make intermediate directories as well
-        os.makedirs(savefig_loc)
-    frame_dir = os.path.join(savefig_loc, model_filename+'_frames')
-    if not os.path.exists(frame_dir):
-        os.mkdir(frame_dir)
+    # if we are saving to video
+    if savefig_loc is not None:
+        model_filename = os.path.basename(savefig_loc)
+        
+        # make the savefig directory if it does not exist
+        if not os.path.exists(savefig_loc):
+            # make intermediate directories as well
+            os.makedirs(savefig_loc)
+        frame_dir = os.path.join(savefig_loc, model_filename+'_frames')
+        if not os.path.exists(frame_dir):
+            os.mkdir(frame_dir)
 
     # get all the layers
     # count layers to get number of rows
@@ -297,13 +301,15 @@ def simulate_network_batch(inps, stim_dims,
                               wspace, hspace, verbose)
         # save the fig to the frame directory
         if savefig_loc is not None:
-            with open(os.path.join(frame_dir, str(i)+'.png'), 'wb') as f:
+            # add the start_idx so we can start at a later point in the inputs
+            with open(os.path.join(frame_dir, str(i+start_idx)+'.png'), 'wb') as f:
                 fig.savefig(f)
             plt.close(fig) # close the fig, so we don't render it every time
         figs.append(fig)
 
     # save to video with ffmpeg
-    os.system("ffmpeg -f image2 -r 5/1 -i ./"+savefig_loc+"/"+model_filename+"_frames/%d.png -vcodec mpeg4 -y "+savefig_loc+"/"+model_filename+".mp4")
+    if savefig_loc is not None:
+        os.system("ffmpeg -f image2 -r 5/1 -i ./"+savefig_loc+"/"+model_filename+"_frames/%d.png -vcodec mpeg4 -y "+savefig_loc+"/"+model_filename+".mp4")
     
     return figs
     
