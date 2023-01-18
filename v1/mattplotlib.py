@@ -241,6 +241,13 @@ def simulate_network(input, stim_dims,
     prev_output = input
     outputs = []
     for n in range(len(model.networks)):
+        # TODO: calculate the outputs in batch and pass them in
+        #       to greatly speed this process up
+        # TODO: for scaffold networks,
+        #       if the previous network is defined as a scaffold,
+        #       then, concatenate all previous outputs together before calling forward
+        # TODO: for parallel networks,
+        #       come up with a way to visualize these parallel networks on the same row
         for l in range(len(model.networks[n].layers)):
             z = model.networks[n].layers[l](prev_output)
             # TODO: not entirely sure if I need to detach twice
@@ -250,8 +257,6 @@ def simulate_network(input, stim_dims,
                 print(prev_output.shape, '-->', z_cpu.shape)
             prev_output = z_cpu
     
-    print(len(layers), len(outputs))
-
     # reshape the input to make it presentable
     input_dims = stim_dims[1], stim_dims[3]
     input = input.numpy().reshape(input_dims).T
@@ -343,3 +348,4 @@ def simulate_network(input, stim_dims,
     
                 box_idx += 1 # move onto the next box
         current_row += 2
+    return fig
