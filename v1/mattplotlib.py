@@ -351,7 +351,8 @@ def render_network(inp, stim_dims,
     imin = np.min(inp.flatten())
     imax = np.max(inp.flatten())
     input_ax.set_axis_off() # remove axis
-    input_ax.imshow(inp, vmin=imin, vmax=imax, 
+    # flip the input upside down
+    input_ax.imshow(np.flipud(inp), vmin=imin, vmax=imax, 
                     aspect='auto', cmap='binary')
     
     # plot the layers and outputs
