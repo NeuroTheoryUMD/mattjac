@@ -7,6 +7,9 @@ import NDNT.utils as utils # some other utilities
 import math
 import networkx as nx
 import NDNT.NDNT as NDN
+from matplotlib.patches import ConnectionPatch
+import torch
+
 
 # light and dark modes
 def lightmode():
@@ -210,3 +213,119 @@ def plot_layersNIM(layers, shapes):
     
     plt.show()
 
+
+
+def simulate_network(input, model, 
+                     figsize=(5,5), 
+                     title=None,
+                     max_cols=8):
+    # count layers to get number of rows
+    # get the layers
+    layers = []
+    for l in range(len(model.networks[0].layers)):
+        layer = model.networks[0].layers[l].get_weights()
+        layers.append(layer)
+    
+    # get the outputs
+    prev_output = input
+    outputs = []
+    for l in range(len(model.networks[0].layers)):
+        z = model.networks[0].layers[l](prev_output)
+        # TODO: not entirely sure if I need to detach twice
+        z_cpu = torch.tensor([z_i.detach().numpy() for z_i in z])
+        outputs.append(z_cpu.numpy())
+        print(prev_output.shape, '-->', z_cpu.shape)
+        prev_output = z_cpu
+
+    # reshape the input to make it presentable
+    input_dims = (layers[0].shape[1], layers[0].shape[0])
+    input = input.numpy().reshape(input_dims)
+    
+    # make the figure and axes
+    fig, axs = plt.subplots(nrows=4, ncols=1,
+                            constrained_layout=True,
+                            figsize=figsize)
+    if title is not None:
+        fig.suptitle(title)
+    
+    subplotspec = axs[0].get_subplotspec()
+    
+    # plot the input
+    subfig = fig.add_subfigure(subplotspec)
+    subfig.suptitle('Input')
+    input_ax = subfig.add_subplot()
+    # to index the last axis for arrays with any number of axes
+    imin = np.min(input.flatten())
+    imax = np.max(input.flatten())
+    input_ax.set_axis_off() # remove axis
+    input_ax.imshow(input, vmin=imin, vmax=imax, aspect='auto', cmap='viridis')
+    
+    # plot the layers and outputs
+    current_row = 1
+    for l in range(0, len(layers)): # go through each layer
+        # get the subplotspec specific to this subplot
+        subplotspec = axs[l+1].get_subplotspec()
+        subfig = fig.add_subfigure(subplotspec)
+        subfig.suptitle('Layer ' + str(l))
+    
+        layer = layers[l]
+        output = outputs[l]
+
+        # if it is 2D, make it 3D
+        if len(layer.shape) == 2:
+            # insert it in the middle so it matches the format of the 3D stuff
+            layer = np.expand_dims(layer, 1)
+
+        # make the layer easier to iterate through and plot
+        # (36, 10, 8) --> (8, 10, 36) = 8 rows of images: 36 width x 10 height
+        layer = np.swapaxes(layer, 0, 2)
+        num_boxes = layer.shape[0]
+        
+        num_rows = 1
+        num_cols = 8
+        if num_boxes > max_cols:
+            num_rows = num_boxes // 8 + 1
+    
+        grid = plt.GridSpec(num_rows*2, num_cols, wspace=0.4, hspace=0.3)    
+        
+        box_idx = 0
+        for i in range(0, num_rows*2, 2):
+            # increment the global row to keep track through the layers
+            for j in range(0, num_cols):
+                # stop plotting if there are no more subunits in the layer
+                if box_idx == num_boxes:
+                    break
+    
+                box = layer[box_idx,:,:]
+    
+                box_ax = subfig.add_subplot(grid[i,j])
+                # to index the last axis for arrays with any number of axes
+                imin = np.min(box.flatten())
+                imax = np.max(box.flatten())
+                box_ax.set_axis_off() # remove axis
+                box_ax.imshow(box, vmin=imin, vmax=imax, aspect='auto', cmap='viridis')
+    
+                output_ax = subfig.add_subplot(grid[i+1,j])
+                # to index the last axis for arrays with any number of axes
+                imin = np.min(box.flatten())
+                imax = np.max(box.flatten())
+                output_ax.set_axis_off() # remove axis
+                output_ax.imshow(output, vmin=imin, vmax=imax, aspect='auto', cmap='viridis')
+    
+                # draw line between input and output
+                centerTopX = (box.shape[1]-1) // 2
+                centerTopY = box.shape[0]-1
+                centerBottomX = (output.shape[1]-1) // 2
+                centerBottomY = output.shape[0]-1
+                centerTopPoint = (centerTopX, centerTopY)
+                centerBottomPoint = (centerBottomX, centerBottomY)
+                con = ConnectionPatch(xyA=centerTopPoint, xyB=centerBottomPoint,
+                                      coordsA="data", coordsB="data",
+                                      axesA=box_ax, axesB=output_ax,
+                                      color="red", arrowstyle='->', linewidth=3)
+                output_ax.add_artist(con)
+    
+                box_idx += 1 # move onto the next box
+        current_row += 2
+    
+    return fig
