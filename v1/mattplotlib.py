@@ -215,50 +215,65 @@ def plot_layersNIM(layers, shapes):
 
 
 
-def simulate_network(input, model, 
+def simulate_network(input, stim_dims,
+                     model,
                      figsize=(5,5), 
                      title=None,
-                     max_cols=8):
+                     max_cols=8,
+                     cmap='gray',
+                     linewidth=3,
+                     linecolor='red',
+                     wspace=0.4,
+                     hspace=0.3,
+                     verbose=False):
     # count layers to get number of rows
     # get the layers
     layers = []
-    for l in range(len(model.networks[0].layers)):
-        layer = model.networks[0].layers[l].get_weights()
-        layers.append(layer)
+    for n in range(len(model.networks)):
+        for l in range(len(model.networks[n].layers)):
+            layer = model.networks[n].layers[l].get_weights()
+            layers.append(layer)
+    
+    # give the input an extra dimension for plotting
+    input = input.unsqueeze(0)
     
     # get the outputs
     prev_output = input
     outputs = []
-    for l in range(len(model.networks[0].layers)):
-        z = model.networks[0].layers[l](prev_output)
-        # TODO: not entirely sure if I need to detach twice
-        z_cpu = torch.tensor([z_i.detach().numpy() for z_i in z])
-        outputs.append(z_cpu.numpy())
-        print(prev_output.shape, '-->', z_cpu.shape)
-        prev_output = z_cpu
+    for n in range(len(model.networks)):
+        for l in range(len(model.networks[n].layers)):
+            z = model.networks[n].layers[l](prev_output)
+            # TODO: not entirely sure if I need to detach twice
+            z_cpu = torch.tensor([z_i.detach().numpy() for z_i in z])
+            outputs.append(z_cpu.numpy())
+            if verbose:
+                print(prev_output.shape, '-->', z_cpu.shape)
+            prev_output = z_cpu
+    
+    print(len(layers), len(outputs))
 
     # reshape the input to make it presentable
-    input_dims = (layers[0].shape[1], layers[0].shape[0])
-    input = input.numpy().reshape(input_dims)
+    input_dims = stim_dims[1], stim_dims[3]
+    input = input.numpy().reshape(input_dims).T
     
     # make the figure and axes
-    fig, axs = plt.subplots(nrows=4, ncols=1,
+    fig, axs = plt.subplots(nrows=len(layers)+1, ncols=1,
                             constrained_layout=True,
                             figsize=figsize)
     if title is not None:
         fig.suptitle(title)
     
-    subplotspec = axs[0].get_subplotspec()
-    
     # plot the input
+    subplotspec = axs[0].get_subplotspec()
     subfig = fig.add_subfigure(subplotspec)
-    subfig.suptitle('Input')
+    subfig.suptitle('Stimulus')
     input_ax = subfig.add_subplot()
     # to index the last axis for arrays with any number of axes
     imin = np.min(input.flatten())
     imax = np.max(input.flatten())
     input_ax.set_axis_off() # remove axis
-    input_ax.imshow(input, vmin=imin, vmax=imax, aspect='auto', cmap='viridis')
+    input_ax.imshow(input, vmin=imin, vmax=imax, 
+                    aspect='auto', cmap='binary')
     
     # plot the layers and outputs
     current_row = 1
@@ -282,11 +297,11 @@ def simulate_network(input, model,
         num_boxes = layer.shape[0]
         
         num_rows = 1
-        num_cols = 8
+        num_cols = max_cols
         if num_boxes > max_cols:
-            num_rows = num_boxes // 8 + 1
+            num_rows = num_boxes // max_cols + 1
     
-        grid = plt.GridSpec(num_rows*2, num_cols, wspace=0.4, hspace=0.3)    
+        grid = plt.GridSpec(num_rows*2, num_cols, wspace=wspace, hspace=hspace)    
         
         box_idx = 0
         for i in range(0, num_rows*2, 2):
@@ -303,14 +318,14 @@ def simulate_network(input, model,
                 imin = np.min(box.flatten())
                 imax = np.max(box.flatten())
                 box_ax.set_axis_off() # remove axis
-                box_ax.imshow(box, vmin=imin, vmax=imax, aspect='auto', cmap='viridis')
+                box_ax.imshow(box, vmin=imin, vmax=imax, aspect='auto', cmap=cmap)
     
                 output_ax = subfig.add_subplot(grid[i+1,j])
                 # to index the last axis for arrays with any number of axes
                 imin = np.min(box.flatten())
                 imax = np.max(box.flatten())
                 output_ax.set_axis_off() # remove axis
-                output_ax.imshow(output, vmin=imin, vmax=imax, aspect='auto', cmap='viridis')
+                output_ax.imshow(output, vmin=imin, vmax=imax, aspect='auto', cmap=cmap)
     
                 # draw line between input and output
                 centerTopX = (box.shape[1]-1) // 2
@@ -322,10 +337,9 @@ def simulate_network(input, model,
                 con = ConnectionPatch(xyA=centerTopPoint, xyB=centerBottomPoint,
                                       coordsA="data", coordsB="data",
                                       axesA=box_ax, axesB=output_ax,
-                                      color="red", arrowstyle='->', linewidth=3)
+                                      color=linecolor, arrowstyle='->', 
+                                      linewidth=linewidth)
                 output_ax.add_artist(con)
     
                 box_idx += 1 # move onto the next box
         current_row += 2
-    
-    return fig
