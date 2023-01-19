@@ -4,6 +4,7 @@ import pickle
 import json
 import torch
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 # utility functions
@@ -40,6 +41,9 @@ class Trial:
         self.data = data
         self.fit_params = fit_params
         self.directory = directory
+        self.LLs = []
+    
+    # TODO: make fit and eval separate?
     
     def run(self):
         # make the trial folder to save the results to
@@ -50,10 +54,8 @@ class Trial:
         self.model.fit(self.data, **self.fit_params)
         
         # eval model
-        LLs = self.model.eval_models(self.data[self.data.val_inds], 
+        self.LLs = self.model.eval_models(self.data[self.data.val_inds], 
                                      null_adjusted=True)
-        
-        print(LLs)
         
         # save model
         with open(os.path.join(trial_directory, 'model.pickle'), 'wb') as f:
@@ -65,7 +67,7 @@ class Trial:
         
         # save LLs
         with open(os.path.join(trial_directory, 'LLs.pickle'), 'wb') as f:
-            pickle.dump(list(LLs), f)
+            pickle.dump(list(self.LLs), f)
         
         # save data info
         data_info = {
@@ -77,7 +79,7 @@ class Trial:
             pickle.dump(data_info, f)
 
         # return LLs
-        return LLs
+        return self.LLs
 
 
 
@@ -100,24 +102,28 @@ class Experiment:
         self.model = model
         # experiment params
         self.exparams = {}
+        # experiment tials
+        self.trials = []
     
     def run(self):
         # make the trials given the params
-        trials = []
+        self.trials = []
         for di, data in enumerate(self.exparams['data']):
             # create models based on the provided params
             models = self.model.build(data)
             for mi, model in enumerate(models):
                 for fi, fit_params in enumerate(self.exparams['fit_params']):
                     trial_name = 'm'+str(mi)+'d'+str(di)+'f'+str(fi)
-                    trials.append(Trial(trial_name, model, data, fit_params, 
+                    self.trials.append(Trial(trial_name, model, data, fit_params, 
                                         directory=self.directory))
-        
+
+        print('==== Running', len(self.trials), 'trials ====')
         # run each trial
-        for trial in trials:
+        for ti, trial in enumerate(self.trials):
+            print('==== Trial', ti, '====')
             trial.run()
             
-        return trials
+        return self.trials
 
     
     # experiment configuration
@@ -128,3 +134,16 @@ class Experiment:
     def with_fit_params(self, *fit_params):
         self.exparams['fit_params'] = as_list(fit_params)
         return self
+    
+    def plot_LLs(self):
+        plt.figure()
+        for trial in self.trials:
+            plt.plot(trial.LLs, label=trial.name)
+        plt.legend()
+        plt.show()
+
+    def __getitem__(self, idx):
+        return self.trials[idx]
+    
+    def __len__(self):
+        return len(self.trials)
