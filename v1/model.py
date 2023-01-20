@@ -1,4 +1,6 @@
 import itertools as it
+import networkx as nx
+
 from enum import Enum
 
 import NDNT.NDNT as NDN
@@ -52,6 +54,7 @@ class Layer:
         # nice defaults
         self.params = {
             # internal params (b/c only the dictionary is passed around)
+            # TODO: this is gross, but it's OK for now...
             'internal_layer_type': [NDNLayer]
         }
 
@@ -105,6 +108,7 @@ class Layer:
 class ConvolutionalLayer(Layer):
     def __init__(self):
         super().__init__()
+        # pass the class so that we create the right layer class
         self.params['internal_layer_type'] = [ConvLayer]
 
     def filter_dims(self, *filter_dimses):
@@ -124,12 +128,68 @@ class ConvolutionalLayer(Layer):
         return self
 
 
+# utility "networks"
+class Input: # holds the input info
+    def __init__(self, covariate, input_dims):
+        self.name = covariate
+        self.covariate = covariate
+        self.input_dims = input_dims
+        self.children = []
+        self.parents = []
+        
+    def to(self, *networks):
+        self.children = list(networks)
+        # set this as the parent
+        for network in networks:
+            network.parents.append(self)
+
+
+class Output: # holds the output info
+    def __init__(self, num_neurons):
+        self.name = 'output'
+        self.num_neurons = num_neurons
+        self.children = []
+        self.parents = []
+        
+
+class Sum:
+    def __init__(self, *networks):
+        self.name = '+'
+        assert len(networks) > 1, 'At least 2 networks are required to Sum'
+        self.networks_to_sum = list(networks)
+        self.children = []
+        self.parents = list(networks)
+        # points its parents (the things to be summed) to this node
+        for network in networks:
+            network.children = [self]
+
+    def to(self, *networks):
+        self.children = list(networks)
+        # set this as the parent
+        for network in networks:
+            network.parents.append(self)
+
+
+class Mult:
+    def __init__(self, *networks):
+        self.name = '*'
+        assert len(networks) > 1, 'At least 2 networks are required to Mult'
+        self.networks_to_mult = list(networks)
+        self.children = []
+        self.parents = []
+
 # network
 class Network:
-    def __init__(self):
+    def __init__(self, name, *layers):
+        # internal params
+        self.name = name
+        self.parents = []
+        self.children = []
+        
+        # NDNLayer params
         self.ffnet_type = NetworkType.normal.value # default to being a normal network
         self.xstim_n = 'stim' # default to using the stim
-        self.layers = []
+        self.layers = list(layers)
         
     def network_type(self, network_type):
         self.ffnet_type = network_type.value
@@ -141,17 +201,27 @@ class Network:
         
     def add_layer(self, layer):
         self.layers.append(layer)
+        
+    def to(self, *networks):
+        self.children = list(networks)
+        # set this as the parent
+        for network in networks:
+            network.parents.append(self)
 
 
 # model
 class Model:
-    def __init__(self):
-        self.networks = []
+    def __init__(self, *networks):
+        # TODO: change this to self.inputs
+        self.networks = list(networks)
     
     def add_network(self, network):
         self.networks.append(network)
 
     def build(self, data):
+        # TODO: don't use a list of NDNs,
+        # instead wrap the NDN in a container that also has its network topology
+        # and network walking APIs
         NDNs = []
         
         networks_with_exploded_layers = []
@@ -203,3 +273,30 @@ class Model:
             NDNs.append(NDN.NDN(ffnet_list=FFnetworks))
             
         return NDNs
+
+    
+    def draw_network(self):
+        g = nx.DiGraph()
+        
+        # find the roots
+        roots = []
+        for node in self.networks:
+            if isinstance(node, Input):
+                roots.append(node)
+        
+        print([root.name for root in roots])
+        
+        # depth-first traverse the network from each root
+        # and construct the network
+        nodes_to_visit = roots # stack
+        while len(nodes_to_visit) > 0:
+            node = nodes_to_visit.pop()
+            nodes_to_visit.extend(node.children)
+            print(node.name)
+            
+            # add the node to the graph
+            for child in node.children:
+                g.add_edge(node.name, child.name)
+                
+        # draw graph
+        nx.draw_networkx(g, with_labels=True)
