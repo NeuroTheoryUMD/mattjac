@@ -147,3 +147,7 @@ class Experiment:
     
     def __len__(self):
         return len(self.trials)
+
+
+    # TODO: print a table (DataFrame) of comparing LLs over parameter combinations tried per dataset
+    

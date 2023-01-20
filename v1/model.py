@@ -1,12 +1,11 @@
-import itertools as it
+import copy # needed to handle annoying python pass by reference
+
+
+from NDNT.modules.layers import *
+
 import networkx as nx
 
 from enum import Enum
-
-import NDNT.NDNT as NDN
-from NDNT.modules.layers import *
-from NDNT.networks import *
-
 
 
 # enums to make things easier to remember
@@ -49,14 +48,29 @@ class NetworkType(Enum):
 
 
 # layer
+# need to deepcopy the params
+# to get around weird python inheritance junk
+# where subclasses overwrite the superclass state
+# https://stackoverflow.com/questions/15469579/when-i-instantiate-a-python-subclass-it-overwrites-base-class-attribute
 class Layer:
-    def __init__(self):
-        # nice defaults
-        self.params = {
-            # internal params (b/c only the dictionary is passed around)
-            # TODO: this is gross, but it's OK for now...
-            'internal_layer_type': [NDNLayer]
-        }
+    # TODO: make the params a kwarg list, we can specify required and optional params this way
+    
+    def __init__(self, params={}):
+        """
+        Create the layer from the params map if provided.
+        :param params: params map
+        :return: layer
+        """
+        self.network = None # to be able to point to the network we are a part of
+        self.params = copy.deepcopy(params)
+        # set the layer type to be a NDNLayer
+        self.params['internal_layer_type'] = [NDNLayer]
+    
+    # TODO: be able to set this layer's weights as the 
+    #       weights of a previous layer that maybe we can access by name
+    #       from the Model API
+    # like Layer().use_weights(prev_layer.get_layer('drift'))
+    # or something like this...
 
     # builder pattern for constructing a layer with parameters
     def input_dims(self, *input_dimses):
@@ -95,8 +109,7 @@ class Layer:
     # make this layer like another layer
     def like(self, layer):
         # copy the other layer params into this layer's params
-        for param, vals in layer.params.items():
-            self.params[param] = vals
+        self.params = copy.deepcopy(layer.params)
         return self
     
     def build(self):
@@ -106,9 +119,15 @@ class Layer:
 
 # layer subclasses
 class ConvolutionalLayer(Layer):
-    def __init__(self):
-        super().__init__()
-        # pass the class so that we create the right layer class
+    def __init__(self, params={}):
+        """
+        Create the layer from the params map if provided.
+        :param params: params map
+        :return: layer
+        """
+        self.network = None # to be able to point to the network we are a part of
+        self.params = copy.deepcopy(params)
+        # set the layer type to be a ConvLayer
         self.params['internal_layer_type'] = [ConvLayer]
 
     def filter_dims(self, *filter_dimses):
@@ -132,171 +151,192 @@ class ConvolutionalLayer(Layer):
 class Input: # holds the input info
     def __init__(self, covariate, input_dims):
         self.name = covariate
+        self.index = -1 # index of network in the list of networks
         self.covariate = covariate
         self.input_dims = input_dims
-        self.children = []
-        self.parents = []
+        self.inputs = [] # this should always be empty for an Input
+        self.output = None
         
-    def to(self, *networks):
-        self.children = list(networks)
-        # set this as the parent
-        for network in networks:
-            network.parents.append(self)
+        # this is a hack so that we can Cartesian product this along with the other nets
+        # create a "virtual" layer
+        self.layers = [Layer(params={'name': [self.name]})]
+
+    def to(self, network):
+        self.output = network
+        network.inputs.append(self)
+
+    def __str__(self):
+        return 'Input name='+self.name+', covariate='+self.covariate+', input_dims='+','.join([str(d) for d in self.input_dims])
 
 
 class Output: # holds the output info
     def __init__(self, num_neurons):
         self.name = 'output'
+        self.index = -1 # index of network in the list of networks
         self.num_neurons = num_neurons
-        self.children = []
-        self.parents = []
+        self.inputs = []
+        self.output = None
+        
+        # this is a hack so that we can Cartesian product this along with the other nets
+        # create a "virtual" layer
+        self.layers = [Layer(params={'name': [self.name]})]
+    
+    def __str__(self):
+        return 'Output name='+self.name+', num_neurons='+str(self.num_neurons)
         
 
 class Sum:
-    def __init__(self, *networks):
+    def __init__(self, networks=None):
         self.name = '+'
-        assert len(networks) > 1, 'At least 2 networks are required to Sum'
-        self.networks_to_sum = list(networks)
-        self.children = []
-        self.parents = list(networks)
+        self.index = -1 # index of network in the list of networks
+        self.inputs = networks
+        self.output = None
+        
+        # this is a hack so that we can Cartesian product this along with the other nets
+        # create a "virtual" layer
+        self.layers = [Layer(params={'name': [self.name]})]
+        
         # points its parents (the things to be summed) to this node
-        for network in networks:
-            network.children = [self]
+        if networks is not None:
+            for network in networks:
+                network.children = [self]
 
-    def to(self, *networks):
-        self.children = list(networks)
-        # set this as the parent
-        for network in networks:
-            network.parents.append(self)
+    def to(self, network):
+        self.output = network
+        network.inputs.append(self)
 
 
 class Mult:
-    def __init__(self, *networks):
+    def __init__(self, networks=None):
         self.name = '*'
+        self.index = -1 # index of network in the list of networks
         assert len(networks) > 1, 'At least 2 networks are required to Mult'
         self.networks_to_mult = list(networks)
-        self.children = []
-        self.parents = []
+        self.inputs = list(networks)
+        self.output = None
+        
+        # this is a hack so that we can Cartesian product this along with the other nets
+        # create a "virtual" layer
+        self.layers = [Layer(params={'name': [self.name]})]
+
+        # points its parents (the things to be multiplied) to this node
+        if networks is not None:
+            for network in networks:
+                network.children = [self]
+
+    def to(self, network):
+        self.output = network
+        network.inputs.append(self)
+
 
 # network
 class Network:
-    def __init__(self, name, *layers):
+    def __init__(self, layers, name=None):
         # internal params
+        self.model = None # to be able to point to the model we are a part of
         self.name = name
-        self.parents = []
-        self.children = []
+        self.index = -1 # index of network in the list of networks
+        self.inputs = []
+        self.output = None
         
         # NDNLayer params
         self.ffnet_type = NetworkType.normal.value # default to being a normal network
-        self.xstim_n = 'stim' # default to using the stim
-        self.layers = list(layers)
+        self.layers = layers
+        for layer in self.layers:
+            layer.network = self # point the layer back to the network it is a part of
         
     def network_type(self, network_type):
         self.ffnet_type = network_type.value
         return self
     
-    def stim(self, stim):
-        self.xstim_n = stim
-        return self
-        
     def add_layer(self, layer):
         self.layers.append(layer)
+        layer.network = self
         
-    def to(self, *networks):
-        self.children = list(networks)
-        # set this as the parent
-        for network in networks:
-            network.parents.append(self)
+    def to(self, network):
+        self.output = network
+        network.inputs.append(self)
+
+    def __str__(self):
+        return 'Network name='+self.name+', len(layers)='+str(len(self.layers))+', inputs='+','.join([str([inp]) for inp in self.inputs])
 
 
 # model
 class Model:
-    def __init__(self, *networks):
-        # TODO: change this to self.inputs
-        self.networks = list(networks)
+    def __init__(self, output):
+        self.FFnet = None # set this Model's FFnet to None to start
+        # the template configuration for this model
+        # to make it easy to compare hyperparameter differences between models
+        # in a nice 2D combination chart!
+        self.model_configuration = None
+
+        self.inputs = []
+        self.networks = []
+        self.output = output
+        
+        # network.index --> network map
+        netidx_to_model = {}
+        
+        network_idx = 0
+        for network in self.traverse():
+            # add to the map
+            netidx_to_model[network_idx] = network
+            # create groups
+            if isinstance(network, Output):
+                continue
+            if isinstance(network, Input):
+                self.inputs.append(network)
+            else: # if it is a Network, Sum, Mult or otherwise
+                network.index = network_idx # set the depth-first index
+                network.model = self # point the network back to the model
+                self.networks.append(network)
+                network_idx += 1
+
+    def add_input(self, inp):
+        self.inputs.append(inp)
     
     def add_network(self, network):
         self.networks.append(network)
+        network.model = self
 
-    def build(self, data):
-        # TODO: don't use a list of NDNs,
-        # instead wrap the NDN in a container that also has its network topology
-        # and network walking APIs
-        NDNs = []
-        
-        networks_with_exploded_layers = []
-        for network in self.networks:
-            exploded_layers = [list(it.product(*layer.build())) for layer in network.layers]
-            layer_groups = list(it.product(*exploded_layers))
-            networks_with_exploded_layers.append(layer_groups)
-        
-        network_groups = list(it.product(*networks_with_exploded_layers))
-
-        for network_group in network_groups:
-            prev_net = -1
-
-            FFnetworks = []
-            for network, layers in zip(self.networks, network_group):
-                NDNLayers = []
-                for layer in layers:
-                    # get params to pass
-                    layer_params = {}
-                    for k,v in layer:
-                        # skip internal params
-                        if not 'internal' in k:
-                            layer_params[k] = v
-                    
-                    layer_dict = {k:v for k,v in layer}
-                    layer_type = layer_dict['internal_layer_type']
-                    NDNLayers.append(layer_type.layer_dict(**layer_params))
-                
-                # if we are on the last network
-                # TODO: make this work better for more complicated topologies
-                if prev_net + 1 == len(self.networks) - 1:
-                    NDNLayers[-1]['num_filters'] = data.NC
-                
-                if prev_net < 0: # if we are on the first network
-                    # set the input_dims of the first layer to the stim_dims
-                    NDNLayers[0]['input_dims'] = data.stim_dims
-                    FFnetworks.append(FFnetwork.ffnet_dict(
-                        xstim_n=network.xstim_n,
-                        layer_list=NDNLayers,
-                        ffnet_type=network.ffnet_type))
-                else: # if we are not on the first network
-                    FFnetworks.append(FFnetwork.ffnet_dict(
-                        xstim_n=network.xstim_n,
-                        ffnet_n=[prev_net], # connect up to previous network, but in future walk the tree
-                        layer_list=NDNLayers,
-                        ffnet_type=network.ffnet_type))
-                prev_net += 1
+    def set_output(self, outp):
+        self.output = outp
     
-            NDNs.append(NDN.NDN(ffnet_list=FFnetworks))
-            
-        return NDNs
+    def __str__(self):
+        return 'Model len(inputs)'+str(len(self.inputs))+\
+            ', len(networks)='+str(len(self.networks))+\
+            ', output='+str(self.output.num_neurons)
 
+    # recursively traverse, depth-first, from the output to the inputs
+    def _traverse(self, inp, out, networks, verbose=False):
+        networks.append(inp)
+        if verbose:
+            if out is not None:
+                print(inp.name, '-->', out.name)
+            else:
+                print(inp.name, '--> None')
+        # base case
+        if isinstance(inp, Input):
+            return inp
+        
+        for prev_inp in inp.inputs:
+            self._traverse(prev_inp, inp, networks, verbose)
     
-    def draw_network(self):
+    def traverse(self, verbose=False):
+        # traverse starting from the output
+        # this is the default behavior
+        networks = []
+        self._traverse(self.output, None, networks, verbose)
+        return networks
+    
+    def draw_network(self, verbose=False):
         g = nx.DiGraph()
         
-        # find the roots
-        roots = []
-        for node in self.networks:
-            if isinstance(node, Input):
-                roots.append(node)
-        
-        print([root.name for root in roots])
-        
-        # depth-first traverse the network from each root
-        # and construct the network
-        nodes_to_visit = roots # stack
-        while len(nodes_to_visit) > 0:
-            node = nodes_to_visit.pop()
-            nodes_to_visit.extend(node.children)
-            print(node.name)
-            
+        for net in self.traverse(verbose):
             # add the node to the graph
-            for child in node.children:
-                g.add_edge(node.name, child.name)
+            for inp in net.inputs:
+                g.add_edge(inp.name, net.name)
                 
         # draw graph
         nx.draw_networkx(g, with_labels=True)
+
