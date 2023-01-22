@@ -118,6 +118,19 @@ class Layer:
 
 
 # layer subclasses
+class PassthroughLayer(Layer):
+    def __init__(self, params={}):
+        """
+        Create the layer from the params map if provided.
+        :param params: params map
+        :return: layer
+        """
+        self.network = None # to be able to point to the network we are a part of
+        self.params = copy.deepcopy(params)
+        # set the layer type to be a ConvLayer
+        self.params['internal_layer_type'] = [ChannelLayer]
+
+
 class ConvolutionalLayer(Layer):
     def __init__(self, params={}):
         """
@@ -162,6 +175,9 @@ class Input: # holds the input info
         self.layers = [Layer(params={'name': [self.name]})]
 
     def to(self, network):
+        # set the input_dims of the network to be the desired Input.input_dims
+        network.input_covariate = self.covariate
+        network.layers[0].params['input_dims'] = [self.input_dims]
         self.output = network
         network.inputs.append(self)
 
@@ -183,31 +199,65 @@ class Output: # holds the output info
     
     def __str__(self):
         return 'Output name='+self.name+', num_neurons='+str(self.num_neurons)
-        
+    
 
-class Sum:
-    def __init__(self, networks=None):
+class Add:
+    def __init__(self, networks=None, NLtype=NL.softplus.value):
+        # TODO: this is a little hacky
+        num_filters = None
+        if networks is not None:
+            num_filters = networks[0].layers[-1].params['num_filters']
+            # make sure that the networks all have the same num_filters in their output
+            for network in networks:
+                assert len(network.layers[-1].params['num_filters']) == 1, "inputs into an Add must only have a single num_filter"
+                assert network.layers[-1].params['num_filters'] == num_filters, "input networks must all have the same num_filters"
+
         self.name = '+'
         self.index = -1 # index of network in the list of networks
         self.inputs = networks
         self.output = None
-        
-        # this is a hack so that we can Cartesian product this along with the other nets
-        # create a "virtual" layer
-        self.layers = [Layer(params={'name': [self.name]})]
-        
+
+        # NDN params
+        self.input_covariate = None # this should always be None for an Operator
+        self.ffnet_type = NetworkType.add.value
+
+        # create a passthrough layer for the Sum
+        self.layers = [PassthroughLayer(params={
+            'num_filters': num_filters,
+            'weights_initializer': 'ones',
+            'NLtype': [NLtype],
+            'bias': [True] # needs a bias since it is the only (e.g. last) layer
+        })]
+
         # points its parents (the things to be summed) to this node
         if networks is not None:
             for network in networks:
-                network.children = [self]
+                network.output = [self]
 
     def to(self, network):
+        # if we are going to an output, update our num_filters to be the num_neurons
+        if isinstance(network, Output):
+            self.layers[-1].params['num_filters'] = [network.num_neurons]
         self.output = network
         network.inputs.append(self)
+
+    def __str__(self):
+        if self.inputs is not None:
+            return 'Add name='+self.name+' '+str(self.index)+', inputs='+','.join([str([inp]) for inp in self.inputs])
+        else:
+            return 'Add name='+self.name+' '+str(self.index)
 
 
 class Mult:
     def __init__(self, networks=None):
+        num_filters = None
+        # TODO: this is a little hacky
+        if networks is not None:
+            num_filters = networks[0].layers[-1].params['num_filters']
+            # make sure that the networks all have the same num_filters in their output
+            for network in networks:
+                assert network.layers[-1].params['num_filters'] == num_filters, "input networks must all have the same num_filters"
+
         self.name = '*'
         self.index = -1 # index of network in the list of networks
         assert len(networks) > 1, 'At least 2 networks are required to Mult'
@@ -215,18 +265,37 @@ class Mult:
         self.inputs = list(networks)
         self.output = None
         
-        # this is a hack so that we can Cartesian product this along with the other nets
-        # create a "virtual" layer
-        self.layers = [Layer(params={'name': [self.name]})]
+        # NDN params
+        self.input_covariate = None # this should always be None for an Operator
+        self.ffnet_type = NetworkType.mult.value
+
+        # create a passthrough layer for the Sum
+        self.layers = [PassthroughLayer(params={
+            'num_filters': num_filters,
+            'weights_initializer': 'ones',
+            'NLtype': [NLtype],
+            'bias': [True] # needs a bias since it is the only (e.g. last) layer
+        })]
 
         # points its parents (the things to be multiplied) to this node
         if networks is not None:
             for network in networks:
-                network.children = [self]
+                network.output = [self]
 
     def to(self, network):
+        # if we are going to an output, update our num_filters to be the num_neurons
+        if isinstance(network, Output):
+            self.layers[-1].params['num_filters'] = [network.num_neurons]
         self.output = network
         network.inputs.append(self)
+
+    def __str__(self):
+        if self.inputs is not None:
+            return 'Mult name='+self.name+' '+str(self.index)+', inputs='+','.join([str([inp]) for inp in self.inputs])
+        else:
+            return 'Mult name='+self.name+' '+str(self.index)
+
+
 
 
 # network
@@ -240,6 +309,7 @@ class Network:
         self.output = None
         
         # NDNLayer params
+        self.input_covariate = None # the covariate that goes to this network
         self.ffnet_type = NetworkType.normal.value # default to being a normal network
         self.layers = layers
         for layer in self.layers:
@@ -254,17 +324,20 @@ class Network:
         layer.network = self
         
     def to(self, network):
+        # if we are going to an output, update our num_filters to be the num_neurons
+        if isinstance(network, Output):
+            self.layers[-1].params['num_filters'] = [network.num_neurons]
         self.output = network
         network.inputs.append(self)
 
     def __str__(self):
-        return 'Network name='+self.name+', len(layers)='+str(len(self.layers))+', inputs='+','.join([str([inp]) for inp in self.inputs])
+        return 'Network name='+self.name+' '+str(self.index)+', len(layers)='+str(len(self.layers))+', inputs='+','.join([str([inp]) for inp in self.inputs])
 
 
 # model
 class Model:
     def __init__(self, output):
-        self.FFnet = None # set this Model's FFnet to None to start
+        self.NDN = None # set this Model's NDN to None to start
         # the template configuration for this model
         # to make it easy to compare hyperparameter differences between models
         # in a nice 2D combination chart!
@@ -277,21 +350,23 @@ class Model:
         # network.index --> network map
         netidx_to_model = {}
         
-        network_idx = 0
         for network in self.traverse():
-            # add to the map
-            netidx_to_model[network_idx] = network
             # create groups
             if isinstance(network, Output):
                 continue
             if isinstance(network, Input):
                 self.inputs.append(network)
-            else: # if it is a Network, Sum, Mult or otherwise
-                network.index = network_idx # set the depth-first index
+            else: # if it is a Network, Add, Mult or otherwise
                 network.model = self # point the network back to the model
                 self.networks.append(network)
-                network_idx += 1
-
+                
+        # b/c the NDNT requires that earlier networks have lower indices,
+        # we need to reverse the network list and the associated indices
+        self.networks.reverse()
+        for idx, network in enumerate(self.networks):
+            netidx_to_model[idx] = network
+            network.index = idx # set the reversed depth-first index
+        
     def add_input(self, inp):
         self.inputs.append(inp)
     

@@ -15,50 +15,13 @@ from collections import deque
 # private methods
 # prefix with __ to make it private
 ####### Model --> NDN converters
-def __LayerParams_to_Layer(template_layer, layer_params):
-    ...
-
-
-def __NetworkParams_to_Network(template_network, output_network, network_params):
-    # configured_network = Network([])
-    # # TODO: support Sum and Mult
-    # for li, layer in enumerate(template_node.layers):
-    #     layer_configuration = network_configuration[li]
-    #     layer_params = {k:v for k,v in layer_configuration}
-    # 
-    #     # set input_dims on the first layer if they are provided
-    #     if li == 0 and input_dims is not None:
-    #         layer_params['input_dims'] = input_dims
-    #     # set output_dims on the laster layer if they are provided
-    #     if li == len(template_node.layers)-1 and output_dims is not None:
-    #         layer_params['num_filters'] = output_dims
-    # 
-    #     # make the Layer
-    #     configured_layer = Layer(layer_params)
-    #     configured_network.add_layer(configured_layer)
-    # return configured_network
-    ...
-
-
-# traverse the template_model networks and build new networks
-# this will recursively build the expression tree from output to inputs
-def _traverse_and_build(cur_template_network, prev_created_network, model_params):
-    node = cur_template_network # node to use
-    
-    if prev_created_network is None:
-        print(cur_template_network.name, '-->', 'None')
-    elif cur_template_network is None:
-        print('None', '-->', prev_created_network.name)
-    else:
-        print(cur_template_network.name, '-->', prev_created_network.name)
-
-    # base case
-    desired_network = None
+def __NetworkParams_to_Network(template_network, prev_created_network, model_params):
+    node = template_network
     
     if isinstance(node, m.Network):
         # get params for this network given the node index
         network_params = model_params[node.index]
-        
+
         # make its layers from the provided configuration
         layers = []
         for li, (layer, layer_params) in enumerate(zip(node.layers, network_params)):
@@ -66,29 +29,54 @@ def _traverse_and_build(cur_template_network, prev_created_network, model_params
             layer_params_map = {k:v for k,v in layer_params}
             # create new layer of the given type
             layers.append(type(layer)(layer_params_map))
-            
-        # copy the network
+
+        # copy the network properties
         new_network = m.Network(layers=layers, name=node.name)
         new_network.index = node.index
+        new_network.input_covariate = node.input_covariate
 
         print('Network', new_network)
-                
+
         # Network only has one input, so this is OK
         new_network.inputs = [_traverse_and_build(node.inputs[0], new_network, model_params)]
         desired_network = new_network
 
-    elif isinstance(node, m.Sum):
-        # create the Sum network
-        sum_network = m.Sum()
-        sum_network.index = node.index
-        print('Sum', sum_network)
-        sum_network.inputs = [_traverse_and_build(prev_in, sum_network, model_params) for prev_in in node.inputs]
-        desired_network = sum_network
+    elif isinstance(node, m.Add):
+        # get params for this network given the node index
+        network_params = model_params[node.index]
+        
+        # create the Add network
+        add_network = m.Add()
+        add_network.index = node.index
+        # make its layers from the provided configuration
+        layers = []
+        for li, (layer, layer_params) in enumerate(zip(node.layers, network_params)):
+            # get params to pass
+            layer_params_map = {k:v for k,v in layer_params}
+            # create new layer of the given type
+            layers.append(type(layer)(layer_params_map))
+        add_network.layers = layers # copy the layers over
+        
+        print('Add', add_network)
+        add_network.inputs = [_traverse_and_build(prev_in, add_network, model_params) for prev_in in node.inputs]
+        desired_network = add_network
 
     elif isinstance(node, m.Mult):
+        # get params for this network given the node index
+        network_params = model_params[node.index]
+        
         # create the Mult network
         mult_network = m.Mult()
         mult_network.index = node.index
+        # make its layers from the provided configuration
+        layers = []
+        for li, (layer, layer_params) in enumerate(zip(node.layers, network_params)):
+            # get params to pass
+            layer_params_map = {k:v for k,v in layer_params}
+            # create new layer of the given type
+            layers.append(type(layer)(layer_params_map))
+        mult_network.layers = layers # copy the layers over
+        
         print('Mult', mult_network)
         mult_network.inputs = [_traverse_and_build(prev_in, mult_network, model_params) for prev_in in node.inputs]
         desired_network = mult_network
@@ -107,9 +95,24 @@ def _traverse_and_build(cur_template_network, prev_created_network, model_params
         # Output only has one input, so this is OK
         output_network.inputs = [_traverse_and_build(node.inputs[0], output_network, model_params)]
         desired_network = output_network
-    
+
+    if prev_created_network is not None:
+        desired_network.output = prev_created_network # set the prev_layer's output
     return desired_network
 
+
+# traverse the template_model networks and build new networks
+# this will recursively build the expression tree from output to inputs
+def _traverse_and_build(cur_template_network, prev_created_network, model_params):
+    if prev_created_network is None:
+        print(cur_template_network.name, '-->', 'None')
+    elif cur_template_network is None:
+        print('None', '-->', prev_created_network.name)
+    else:
+        print(cur_template_network.name, '-->', prev_created_network.name)
+
+    # base case
+    return __NetworkParams_to_Network(cur_template_network, prev_created_network, model_params)
 
 
 def __ModelParams_to_Model(template_model, model_params):
@@ -124,50 +127,47 @@ def __ModelParams_to_Model(template_model, model_params):
     
 
 ####### Model --> NDN converters
-def __Layer_to_FFlayer(network):
-    ...
-
-
 def __Network_to_FFnetwork(network):
-    assert not (parents is not None and input_name is not None), "only parents xor input name can be specified"
-
+    # add layers to the network
     NDNLayers = []
-    # TODO: support Sum and Mult
     for li, layer in enumerate(network.layers):
         # get the layer_type (the first element of the list)
         layer_type = layer.params['internal_layer_type'][0]
 
         # get params to pass
-        layer_params = {}
+        sanitized_layer_params = {}
         for k,v in layer.params.items():
             # skip internal params
             if not 'internal' in k:
-                layer_params[k] = v
+                sanitized_layer_params[k] = v
 
-        # set input_dims on the first layer if they are provided
-        if li == 0 and input_dims is not None:
-            layer_params['input_dims'] = input_dims
-        # set output_dims on the laster layer if they are provided
-        if li == len(network.layers)-1 and output_dims is not None:
-            layer_params['num_filters'] = output_dims
+        NDNLayers.append(layer_type.layer_dict(**sanitized_layer_params))
 
-        NDNLayers.append(layer_type.layer_dict(**layer_params))
+    # if the network gets input from an Input (e.g. has input_covariate)
+    if network.input_covariate is not None:
+        return FFnetwork.ffnet_dict(
+            xstim_n=network.input_covariate,
+            ffnet_n=None,
+            layer_list=NDNLayers,
+            ffnet_type=network.ffnet_type)
+    else: # if the network gets inputs from other Networks
+        return FFnetwork.ffnet_dict(
+            xstim_n=None,
+            ffnet_n=[inp.index for inp in network.inputs],
+            layer_list=NDNLayers,
+            ffnet_type=network.ffnet_type)
+        
 
-
-    ffnet_in = None
-    if parents is not None:
-        ffnet_in = [parent for parent in network.parents if parent.index >= 0]
-
-    # add desired children based on the original Model children (and parents)
-    return FFnetwork.ffnet_dict(
-        xstim_n=input_name,
-        ffnet_n=ffnet_in,
-        layer_list=NDNLayers,
-        ffnet_type=network.ffnet_type)
-
-
-def __Model_to_NDN(model, model_params):
-    ...
+def __Model_to_NDN(model):
+    ffnets = []
+    for network in model.networks:
+        ffnets.append(__Network_to_FFnetwork(network))
+    import pprint
+    print('====FF====')
+    for i in range(len(model.networks)):
+        print('---', model.networks[i].name, '---')
+        pprint.pprint(ffnets[i])
+    return NDN.NDN(ffnet_list=ffnets)
 
 
 ####### Params Exploder
@@ -244,8 +244,8 @@ def create_models(model_template):
     
     for model_params in models_params:
         model =__ModelParams_to_Model(model_template, model_params)
-        #NDN = __Model_to_NDN(model, model_params)
-        #model.NDN = NDN
+        NDN = __Model_to_NDN(model)
+        model.NDN = NDN
         models.append(model)
     
     return models
