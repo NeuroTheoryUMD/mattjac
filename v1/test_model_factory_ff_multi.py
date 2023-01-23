@@ -96,7 +96,7 @@ def test_two_ff_multi_creation():
         assert len(input_stim.inputs) == 0
         assert input_stim.output == netA
         assert len(input_stim.layers) == 1
-        assert len(input_stim.layers[0].params) == 9
+        assert len(input_stim.layers[0].params) == 10
         # TODO: maybe we should not use a 'virtual' layer?
         assert input_stim.layers[0].params['internal_layer_type'] is l.NDNLayer
         assert input_stim.output is netA

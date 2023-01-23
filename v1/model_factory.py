@@ -33,7 +33,7 @@ def __NetworkParams_to_Network(template_network, prev_created_network, model_par
             layers.append(layer)
 
         # copy the network properties
-        new_network = m.Network(layers=layers, name=node.name)
+        new_network = m.Network(layers=layers, name=node.name, network_type=node.network_type)
         new_network.index = node.index
         new_network.input_covariate = node.input_covariate
         
@@ -249,7 +249,6 @@ def create_models(model_template, verbose=False):
     models = []
     
     models_params = __explode_params(model_template)
-    print('--->', len(models_params))
     
     for model_params in models_params:
         model =__ModelParams_to_Model(model_template, model_params, verbose)

@@ -137,7 +137,7 @@ def test_two_ff_single_creation():
     assert len(input_stim.inputs) == 0
     assert input_stim.output == netA
     assert len(input_stim.layers) == 1
-    assert len(input_stim.layers[0].params) == 9 # has the default number of params
+    assert len(input_stim.layers[0].params) == 10 # has the default number of params
     # TODO: maybe we should not use a 'virtual' layer?
     assert input_stim.layers[0].params['internal_layer_type'] is l.NDNLayer
     assert input_stim.output is netA
@@ -280,7 +280,7 @@ def test_three_ff_single_creation():
     assert len(input_stim.inputs) == 0
     assert input_stim.output == netA
     assert len(input_stim.layers) == 1
-    assert len(input_stim.layers[0].params) == 9 # has the default number of params
+    assert len(input_stim.layers[0].params) == 10 # has the default number of params
     # TODO: maybe we should not use a 'virtual' layer?
     assert input_stim.layers[0].params['internal_layer_type'] is l.NDNLayer
     assert input_stim.output is netA

@@ -48,6 +48,11 @@ class NetworkType(Enum):
 
 
 # layer
+# TODO: don't make the params dict here, instead keep internal properties
+#       and then turn them into the list of tuples in the build() method.
+#       This will require updating how params are set in the model_factory, if we go this way.
+# However, it will make it easier to subclass and add properties in future.
+
 # need to deepcopy the params
 # to get around weird python inheritance junk
 # where subclasses overwrite the superclass state
@@ -63,7 +68,8 @@ class Layer:
                  NLtype=NL.linear,
                  initialize_center=False,
                  reg_vals=None,
-                 output_norm=None):
+                 output_norm=None,
+                 pos_constraint=False):
         # convert the passed in params to list if they are not already
         self.params = {
             'internal_layer_type': [NDNLayer],
@@ -74,7 +80,8 @@ class Layer:
             'NLtype': [nl.value for nl in NLtype] if isinstance(NLtype, list) else [NLtype.value],
             'initialize_center': initialize_center if isinstance(initialize_center, list) else [initialize_center],
             'reg_vals': reg_vals if isinstance(reg_vals, list) else [reg_vals],
-            'output_norm': output_norm if isinstance(output_norm, list) else [output_norm]
+            'output_norm': output_norm if isinstance(output_norm, list) else [output_norm],
+            'pos_constraint': pos_constraint if isinstance(pos_constraint, list) else [pos_constraint]
         }
         self.network = None # to be able to point to the network we are a part of
         # TODO: be able to set this layer's weights as the 
@@ -113,9 +120,9 @@ class PassthroughLayer:
 
 class ConvolutionalLayer:
     def __init__(self,
-                 filter_dims,
-                 window,
-                 padding,
+                 filter_dims=None,
+                 window=None,
+                 padding='same', # default in the NDN
                  num_filters=None,
                  num_inh=0,
                  bias=False,
@@ -123,7 +130,8 @@ class ConvolutionalLayer:
                  NLtype=NL.linear,
                  initialize_center=False,
                  reg_vals=None,
-                 output_norm=None):
+                 output_norm=None,
+                 pos_constraint=False):
         # convert the passed in params to list if they are not already
         self.params = {
             'internal_layer_type': [ConvLayer],
@@ -137,7 +145,8 @@ class ConvolutionalLayer:
             'output_norm': output_norm if isinstance(output_norm, list) else [output_norm],
             'filter_dims': [filter_dims] if not isinstance(filter_dims, list) else filter_dims,
             'window': window if isinstance(window, list) else [window],
-            'padding': padding if isinstance(padding, list) else [padding]
+            'padding': padding if isinstance(padding, list) else [padding],
+            'pos_constraint': pos_constraint if isinstance(pos_constraint, list) else [pos_constraint]
         }
 
     # make this layer like another layer
@@ -283,21 +292,20 @@ class Mult:
             return 'Mult name='+self.name+' '+str(self.index)
 
 
-
-
 # network
 class Network:
-    def __init__(self, layers, name=None, network_type=NetworkType.normal.value):
+    def __init__(self, layers, name, network_type=NetworkType.normal):
         # internal params
         self.model = None # to be able to point to the model we are a part of
         self.name = name
+        self.network_type = network_type
         self.index = -1 # index of network in the list of networks
         self.inputs = []
         self.output = None
         
         # NDNLayer params
         self.input_covariate = None # the covariate that goes to this network
-        self.ffnet_type = network_type # default to being a normal network
+        self.ffnet_type = network_type.value # get the value out of the network_type
         self.layers = layers
         for layer in self.layers:
             layer.network = self # point the layer back to the network it is a part of
