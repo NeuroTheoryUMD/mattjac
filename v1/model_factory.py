@@ -56,12 +56,15 @@ def __NetworkParams_to_Network(template_network, prev_created_network, model_par
             # get params to pass
             layer_params_map = {k:v for k,v in layer_params}
             # create new layer of the given type
-            layers.append(type(layer)(layer_params_map))
+            layer = type(layer)()
+            layer.params = layer_params_map
+            layers.append(layer)
         add_network.layers = layers # copy the layers over
 
         if verbose:
             print('Add', add_network)
         add_network.inputs = [_traverse_and_build(prev_in, add_network, model_params, verbose) for prev_in in node.inputs]
+        add_network.name = '+'.join(inp.name for inp in add_network.inputs) # TODO: this is kind of a hack
         desired_network = add_network
 
     elif isinstance(node, m.Mult):
@@ -77,12 +80,15 @@ def __NetworkParams_to_Network(template_network, prev_created_network, model_par
             # get params to pass
             layer_params_map = {k:v for k,v in layer_params}
             # create new layer of the given type
-            layers.append(type(layer)(layer_params_map))
+            layer = type(layer)()
+            layer.params = layer_params_map
+            layers.append(layer)
         mult_network.layers = layers # copy the layers over
 
         if verbose:
             print('Mult', mult_network)
         mult_network.inputs = [_traverse_and_build(prev_in, mult_network, model_params, verbose) for prev_in in node.inputs]
+        mult_network.name = '+'.join(inp.name for inp in mult_network.inputs) # TODO: this is kind of a hack
         desired_network = mult_network
 
     elif isinstance(node, m.Input):
@@ -123,9 +129,7 @@ def _traverse_and_build(cur_template_network, prev_created_network, model_params
 
 
 def __ModelParams_to_Model(template_model, model_params, verbose=False):
-    #print('len modelparams', len(model_params))
     configured_output = _traverse_and_build(template_model.output, None, model_params, verbose)
-    #print('output', configured_output)
     configured_model = m.Model(configured_output)
     # set the params to keep track of the exact things going into this model
     configured_model.model_configuration = model_params
@@ -140,7 +144,7 @@ def __Network_to_FFnetwork(network):
     for li, layer in enumerate(network.layers):
         # get the layer_type
         layer_type = layer.params['internal_layer_type']
-
+        
         # get params to pass
         sanitized_layer_params = {}
         for k,v in layer.params.items():
@@ -182,6 +186,8 @@ def __Model_to_NDN(model, verbose):
 def __explode_params(model):
     networks_with_exploded_layers = []
     for network in model.networks:
+        # replace the 
+        
         # break apart the layer definitions into
         # a list of each possible combination of parameters
         # so each layer definition like:

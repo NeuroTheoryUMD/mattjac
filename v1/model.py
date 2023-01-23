@@ -112,10 +112,13 @@ class PassthroughLayer:
             'num_filters': num_filters if isinstance(num_filters, list) else [num_filters],
             'NLtype': [nl.value for nl in NLtype] if isinstance(NLtype, list) else [NLtype.value],
             'bias': bias if isinstance(bias, list) else [bias],
-            'weights_initializer': ['ones'],
-            
+            'weights_initializer': ['ones']
         }
         self.network = None # to be able to point to the network we are a part of
+
+    def build(self):
+        # convert the dictionary of lists into a list of lists of tuples
+        return [[(k,v) for v in vs] for k,vs in self.params.items()]
 
 
 class ConvolutionalLayer:
@@ -206,7 +209,7 @@ class Output: # holds the output info
 class Add:
     def __init__(self, 
                  networks=None, 
-                 NLtype=NL.softplus.value, 
+                 NLtype=NL.softplus, 
                  bias=False):
         # TODO: this is a little hacky
         num_filters = None
@@ -218,6 +221,9 @@ class Add:
                 assert network.layers[-1].params['num_filters'] == num_filters, "input networks must all have the same num_filters"
 
         self.name = '+'
+        if networks is not None: # TODO: kind of a hack
+            self.name = '+'.join(network.name for network in networks)
+        
         self.index = -1 # index of network in the list of networks
         self.inputs = networks
         self.output = None
@@ -249,7 +255,7 @@ class Add:
 class Mult:
     def __init__(self,
                  networks=None,
-                 NLtype=NL.softplus.value,
+                 NLtype=NL.softplus,
                  bias=False):
         num_filters = None
         # TODO: this is a little hacky
@@ -260,6 +266,9 @@ class Mult:
                 assert network.layers[-1].params['num_filters'] == num_filters, "input networks must all have the same num_filters"
 
         self.name = '*'
+        if networks is not None: # TODO: kind of a hack
+            self.name = '*'.join(network.name for network in networks)
+            
         self.index = -1 # index of network in the list of networks
         assert len(networks) > 1, 'At least 2 networks are required to Mult'
         self.networks_to_mult = list(networks)

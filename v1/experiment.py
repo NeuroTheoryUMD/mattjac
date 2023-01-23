@@ -3,8 +3,10 @@ import shutil
 import pickle
 import json
 import torch
+import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
+import model_factory as mf
 
 
 # utility functions
@@ -51,10 +53,11 @@ class Trial:
         os.mkdir(trial_directory)
         
         # fit model
-        self.model.fit(self.data, **self.fit_params)
+        assert self.model.NDN is not None
+        self.model.NDN.fit(self.data, **self.fit_params)
         
         # eval model
-        self.LLs = self.model.eval_models(self.data[self.data.val_inds], 
+        self.LLs = self.model.NDN.eval_models(self.data[self.data.val_inds], 
                                      null_adjusted=True)
         
         # save model
@@ -86,7 +89,7 @@ class Trial:
 # creates experiment for a single model architecture 
 # given the desired params and data to test as different trials
 class Experiment:
-    def __init__(self, name, model, folder='experiments', overwrite=False):
+    def __init__(self, name, model_template, data, fit_params, folder='experiments', overwrite=False):
         self.directory = os.path.join(folder, name)
         experiment_exists = os.path.exists(self.directory)
         if overwrite:
@@ -98,20 +101,30 @@ class Experiment:
             # make experiment directory
             os.makedirs(self.directory)
         
-        # experiment model    
-        self.model = model
+        if not isinstance(data, list):
+            data = [data]
+        if not isinstance(fit_params, list):
+            fit_params = [fit_params]
+                    
+        # experiment model_template    
+        self.model_template = model_template
         # experiment params
-        self.exparams = {}
+        self.exparams = {
+            'data': data,
+            'fit_params': fit_params
+        }
         # experiment tials
         self.trials = []
     
-    def run(self):
+    def run(self, verbose=False):
         # make the trials given the params
         self.trials = []
         for di, data in enumerate(self.exparams['data']):
             # create models based on the provided params
-            models = self.model.build(data)
-            for mi, model in enumerate(models):
+            print('Creating models')
+            models = mf.create_models(self.model_template, verbose)
+            print('Created', len(models), 'models')
+            for mi, model in tqdm.tqdm(enumerate(models)):
                 for fi, fit_params in enumerate(self.exparams['fit_params']):
                     trial_name = 'm'+str(mi)+'d'+str(di)+'f'+str(fi)
                     self.trials.append(Trial(trial_name, model, data, fit_params, 
@@ -120,20 +133,11 @@ class Experiment:
         print('==== Running', len(self.trials), 'trials ====')
         # run each trial
         for ti, trial in enumerate(self.trials):
-            print('==== Trial', ti, '====')
+            print('==== Trial', ti, '-->', trial.name, '====')
             trial.run()
             
         return self.trials
-
     
-    # experiment configuration
-    def with_data(self, *data):
-        self.exparams['data'] = as_list(data)
-        return self
-
-    def with_fit_params(self, *fit_params):
-        self.exparams['fit_params'] = as_list(fit_params)
-        return self
     
     def plot_LLs(self):
         plt.figure()
