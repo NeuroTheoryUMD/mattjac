@@ -24,9 +24,29 @@ def create_adam_params():
 
 
 def create_two_simple_networks(verbose=False):
-    netAlayer0 = m.Layer().norm_type(m.Norm.none).NLtype(m.NL.relu).bias(False).initialize_center(True).reg_vals({'l1':0.1, 'localx':0.001, 'bcs':{'d2xt':1}}).num_filters(2)
-    netBlayer0 = m.Layer().norm_type(m.Norm.none).NLtype(m.NL.relu).bias(False).initialize_center(True).reg_vals({'l1':0.1, 'localx':0.001, 'bcs':{'d2xt':1}}).num_filters(4)
-    netBlayer1 = m.Layer().norm_type(m.Norm.none).NLtype(m.NL.relu).bias(False).initialize_center(True).reg_vals({'l1':0.1, 'localx':0.001, 'bcs':{'d2xt':1}})
+    netAlayer0 = m.Layer(
+        norm_type=m.Norm.none,
+        NLtype=m.NL.relu,
+        bias=False,
+        initialize_center=True,
+        reg_vals={'l1':0.1, 'localx':0.001, 'bcs':{'d2xt':1}},
+        num_filters=2
+    )
+    netBlayer0 = m.Layer(
+        norm_type=m.Norm.none,
+        NLtype=m.NL.relu,
+        bias=False,
+        initialize_center=True,
+        reg_vals={'l1':0.1, 'localx':0.001, 'bcs':{'d2xt':1}},
+        num_filters=4
+    )
+    netBlayer1 = m.Layer(
+        norm_type=m.Norm.none,
+        NLtype=m.NL.relu,
+        bias=False,
+        initialize_center=True,
+        reg_vals={'l1':0.1, 'localx':0.001, 'bcs':{'d2xt':1}}
+    )
 
     inp_stim = m.Input(covariate='stim', input_dims=[1,36,1,10])
     netA = m.Network(layers=[netAlayer0], name='A')
@@ -43,10 +63,37 @@ def create_two_simple_networks(verbose=False):
 
 
 def create_three_simple_networks(verbose=False):
-    netAlayer0 = m.Layer().norm_type(m.Norm.none).NLtype(m.NL.relu).bias(False).initialize_center(True).reg_vals({'l1':0.1, 'localx':0.001, 'bcs':{'d2xt':1}}).num_filters(3)
-    netBlayer0 = m.Layer().norm_type(m.Norm.none).NLtype(m.NL.relu).bias(False).initialize_center(True).reg_vals({'l1':0.1, 'localx':0.001, 'bcs':{'d2xt':1}}).num_filters(4)
-    netBlayer1 = m.Layer().norm_type(m.Norm.none).NLtype(m.NL.relu).bias(False).initialize_center(True).reg_vals({'l1':0.1, 'localx':0.001, 'bcs':{'d2xt':1}}).num_filters(5)
-    netClayer0 = m.Layer().norm_type(m.Norm.none).NLtype(m.NL.relu).bias(False).initialize_center(True).reg_vals({'l1':0.1, 'localx':0.001, 'bcs':{'d2xt':1}})
+    netAlayer0 = m.Layer(
+        norm_type=m.Norm.none,
+        NLtype=m.NL.relu,
+        bias=False,
+        initialize_center=True,
+        reg_vals={'l1':0.1, 'localx':0.001, 'bcs':{'d2xt':1}},
+        num_filters=3
+    )
+    netBlayer0 = m.Layer(
+        norm_type=m.Norm.none,
+        NLtype=m.NL.relu,
+        bias=False,
+        initialize_center=True,
+        reg_vals={'l1':0.1, 'localx':0.001, 'bcs':{'d2xt':1}},
+        num_filters=4
+    )
+    netBlayer1 = m.Layer(
+        norm_type=m.Norm.none,
+        NLtype=m.NL.relu,
+        bias=False,
+        initialize_center=True,
+        reg_vals={'l1':0.1, 'localx':0.001, 'bcs':{'d2xt':1}},
+        num_filters=5
+    )
+    netClayer0 = m.Layer(
+        norm_type=m.Norm.none,
+        NLtype=m.NL.relu,
+        bias=False,
+        initialize_center=True,
+        reg_vals={'l1':0.1, 'localx':0.001, 'bcs':{'d2xt':1}}
+    )
 
     inp_stim = m.Input(covariate='stim', input_dims=[1,36,1,10])
     netA = m.Network(layers=[netAlayer0], name='A')
@@ -90,10 +137,9 @@ def test_two_ff_single_creation():
     assert len(input_stim.inputs) == 0
     assert input_stim.output == netA
     assert len(input_stim.layers) == 1
-    assert len(input_stim.layers[0].params) == 2
+    assert len(input_stim.layers[0].params) == 9 # has the default number of params
     # TODO: maybe we should not use a 'virtual' layer?
-    assert input_stim.layers[0].params['name'][0] == 'stim'
-    assert input_stim.layers[0].params['internal_layer_type'][0] is l.NDNLayer
+    assert input_stim.layers[0].params['internal_layer_type'] is l.NDNLayer
     assert input_stim.output is netA
     
     # test_correct_output_created
@@ -124,7 +170,7 @@ def test_two_ff_single_creation():
     # test_correct_layers_created
     # netA.layer0
     assert netA.layers[0].network is netA
-    assert netA.layers[0].params['internal_layer_type'][0] is l.NDNLayer
+    assert netA.layers[0].params['internal_layer_type'] is l.NDNLayer
     assert netA.layers[0].params['norm_type'] == 0
     assert netA.layers[0].params['NLtype'] == 'relu'
     assert netA.layers[0].params['bias'] == False
@@ -134,7 +180,7 @@ def test_two_ff_single_creation():
     assert netA.layers[0].params['input_dims'] == [1,36,1,10]
     # netB.layer0
     assert netB.layers[0].network is netB
-    assert netB.layers[0].params['internal_layer_type'][0] is l.NDNLayer
+    assert netB.layers[0].params['internal_layer_type'] is l.NDNLayer
     assert netB.layers[0].params['norm_type'] == 0
     assert netB.layers[0].params['NLtype'] == 'relu'
     assert netB.layers[0].params['bias'] == False
@@ -144,7 +190,7 @@ def test_two_ff_single_creation():
     assert 'input_dims' not in netB.layers[0].params # these should be empty
     # netB.layer1
     assert netB.layers[1].network is netB
-    assert netB.layers[1].params['internal_layer_type'][0] is l.NDNLayer
+    assert netB.layers[1].params['internal_layer_type'] is l.NDNLayer
     assert netB.layers[1].params['norm_type'] == 0
     assert netB.layers[1].params['NLtype'] == 'relu'
     assert netB.layers[1].params['bias'] == False
@@ -234,10 +280,9 @@ def test_three_ff_single_creation():
     assert len(input_stim.inputs) == 0
     assert input_stim.output == netA
     assert len(input_stim.layers) == 1
-    assert len(input_stim.layers[0].params) == 2
+    assert len(input_stim.layers[0].params) == 9 # has the default number of params
     # TODO: maybe we should not use a 'virtual' layer?
-    assert input_stim.layers[0].params['name'][0] == 'stim'
-    assert input_stim.layers[0].params['internal_layer_type'][0] is l.NDNLayer
+    assert input_stim.layers[0].params['internal_layer_type'] is l.NDNLayer
     assert input_stim.output is netA
 
     # test_correct_output_created
@@ -277,7 +322,7 @@ def test_three_ff_single_creation():
     # test_correct_layers_created
     # netA.layer0
     assert netA.layers[0].network is netA
-    assert netA.layers[0].params['internal_layer_type'][0] is l.NDNLayer
+    assert netA.layers[0].params['internal_layer_type'] is l.NDNLayer
     assert netA.layers[0].params['norm_type'] == 0
     assert netA.layers[0].params['NLtype'] == 'relu'
     assert netA.layers[0].params['bias'] == False
@@ -287,7 +332,7 @@ def test_three_ff_single_creation():
     assert netA.layers[0].params['input_dims'] == [1,36,1,10]
     # netB.layer0
     assert netB.layers[0].network is netB
-    assert netB.layers[0].params['internal_layer_type'][0] is l.NDNLayer
+    assert netB.layers[0].params['internal_layer_type'] is l.NDNLayer
     assert netB.layers[0].params['norm_type'] == 0
     assert netB.layers[0].params['NLtype'] == 'relu'
     assert netB.layers[0].params['bias'] == False
@@ -297,7 +342,7 @@ def test_three_ff_single_creation():
     assert 'input_dims' not in netB.layers[0].params # these should be empty
     # netB.layer1
     assert netB.layers[1].network is netB
-    assert netB.layers[1].params['internal_layer_type'][0] is l.NDNLayer
+    assert netB.layers[1].params['internal_layer_type'] is l.NDNLayer
     assert netB.layers[1].params['norm_type'] == 0
     assert netB.layers[1].params['NLtype'] == 'relu'
     assert netB.layers[1].params['bias'] == False
@@ -307,7 +352,7 @@ def test_three_ff_single_creation():
     assert 'input_dims' not in netB.layers[1].params # these should be empty    
     # netC.layer0
     assert netC.layers[0].network is netC
-    assert netC.layers[0].params['internal_layer_type'][0] is l.NDNLayer
+    assert netC.layers[0].params['internal_layer_type'] is l.NDNLayer
     assert netC.layers[0].params['norm_type'] == 0
     assert netC.layers[0].params['NLtype'] == 'relu'
     assert netC.layers[0].params['bias'] == False

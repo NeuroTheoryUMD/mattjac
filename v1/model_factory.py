@@ -28,7 +28,9 @@ def __NetworkParams_to_Network(template_network, prev_created_network, model_par
             # get params to pass
             layer_params_map = {k:v for k,v in layer_params}
             # create new layer of the given type
-            layers.append(type(layer)(layer_params_map))
+            layer = type(layer)()
+            layer.params = layer_params_map
+            layers.append(layer)
 
         # copy the network properties
         new_network = m.Network(layers=layers, name=node.name)
@@ -136,8 +138,8 @@ def __Network_to_FFnetwork(network):
     # add layers to the network
     NDNLayers = []
     for li, layer in enumerate(network.layers):
-        # get the layer_type (the first element of the list)
-        layer_type = layer.params['internal_layer_type'][0]
+        # get the layer_type
+        layer_type = layer.params['internal_layer_type']
 
         # get params to pass
         sanitized_layer_params = {}

@@ -55,56 +55,33 @@ class NetworkType(Enum):
 class Layer:
     # TODO: make the params a kwarg list, we can specify required and optional params this way
     
-    def __init__(self, params={}):
-        """
-        Create the layer from the params map if provided.
-        :param params: params map
-        :return: layer
-        """
+    def __init__(self, 
+                 num_filters=None,
+                 num_inh=0,
+                 bias=False,
+                 norm_type = Norm.none,
+                 NLtype=NL.linear,
+                 initialize_center=False,
+                 reg_vals=None,
+                 output_norm=None):
+        # convert the passed in params to list if they are not already
+        self.params = {
+            'internal_layer_type': [NDNLayer],
+            'num_filters': num_filters if isinstance(num_filters, list) else [num_filters],
+            'num_inh': num_inh if isinstance(num_inh, list) else [num_inh],
+            'bias': bias if isinstance(bias, list) else [bias],
+            'norm_type': [nt.value for nt in norm_type] if isinstance(norm_type, list) else [norm_type.value],
+            'NLtype': [nl.value for nl in NLtype] if isinstance(NLtype, list) else [NLtype.value],
+            'initialize_center': initialize_center if isinstance(initialize_center, list) else [initialize_center],
+            'reg_vals': reg_vals if isinstance(reg_vals, list) else [reg_vals],
+            'output_norm': output_norm if isinstance(output_norm, list) else [output_norm]
+        }
         self.network = None # to be able to point to the network we are a part of
-        self.params = copy.deepcopy(params)
-        # set the layer type to be a NDNLayer
-        self.params['internal_layer_type'] = [NDNLayer]
-    
-    # TODO: be able to set this layer's weights as the 
-    #       weights of a previous layer that maybe we can access by name
-    #       from the Model API
-    # like Layer().use_weights(prev_layer.get_layer('drift'))
-    # or something like this...
-
-    # builder pattern for constructing a layer with parameters
-    def input_dims(self, *input_dimses):
-        if input_dimses is not None: # only set it if it is not none
-            self.params['input_dims'] = list(input_dimses)
-        return self
-
-    def num_filters(self, *num_filterses):
-        self.params['num_filters'] = list(num_filterses)
-        return self
-    
-    def num_inh(self, *num_inhs):
-        self.params['num_inh'] = list(num_inhs)
-        return self
-
-    def bias(self, *biases):
-        self.params['bias'] = list(biases)
-        return self
-    
-    def norm_type(self, *norm_types):
-        self.params['norm_type'] = [norm_type.value for norm_type in norm_types]
-        return self
-
-    def NLtype(self, *NLtypes):
-        self.params['NLtype'] = [NLtype.value for NLtype in NLtypes]
-        return self
-
-    def initialize_center(self, *initialize_centers):
-        self.params['initialize_center'] = list(initialize_centers)
-        return self
-        
-    def reg_vals(self, *reg_valses):
-        self.params['reg_vals'] = list(reg_valses)
-        return self
+        # TODO: be able to set this layer's weights as the 
+        #       weights of a previous layer that maybe we can access by name
+        #       from the Model API
+        # like Layer().use_weights(prev_layer.get_layer('drift'))
+        # or something like this...
     
     # make this layer like another layer
     def like(self, layer):
@@ -118,46 +95,60 @@ class Layer:
 
 
 # layer subclasses
-class PassthroughLayer(Layer):
-    def __init__(self, params={}):
-        """
-        Create the layer from the params map if provided.
-        :param params: params map
-        :return: layer
-        """
+class PassthroughLayer:
+    def __init__(self, 
+                 num_filters=None,
+                 bias=False,
+                 NLtype=NL.linear):
+        self.params = {
+            'internal_layer_type': [ChannelLayer],
+            'num_filters': num_filters if isinstance(num_filters, list) else [num_filters],
+            'NLtype': [nl.value for nl in NLtype] if isinstance(NLtype, list) else [NLtype.value],
+            'bias': bias if isinstance(bias, list) else [bias],
+            'weights_initializer': ['ones'],
+            
+        }
         self.network = None # to be able to point to the network we are a part of
-        self.params = copy.deepcopy(params)
-        # set the layer type to be a ConvLayer
-        self.params['internal_layer_type'] = [ChannelLayer]
 
 
-class ConvolutionalLayer(Layer):
-    def __init__(self, params={}):
-        """
-        Create the layer from the params map if provided.
-        :param params: params map
-        :return: layer
-        """
-        self.network = None # to be able to point to the network we are a part of
-        self.params = copy.deepcopy(params)
-        # set the layer type to be a ConvLayer
-        self.params['internal_layer_type'] = [ConvLayer]
+class ConvolutionalLayer:
+    def __init__(self,
+                 filter_dims,
+                 window,
+                 padding,
+                 num_filters=None,
+                 num_inh=0,
+                 bias=False,
+                 norm_type = Norm.none,
+                 NLtype=NL.linear,
+                 initialize_center=False,
+                 reg_vals=None,
+                 output_norm=None):
+        # convert the passed in params to list if they are not already
+        self.params = {
+            'internal_layer_type': [ConvLayer],
+            'num_filters': num_filters if isinstance(num_filters, list) else [num_filters],
+            'num_inh': num_inh if isinstance(num_inh, list) else [num_inh],
+            'bias': bias if isinstance(bias, list) else [bias],
+            'norm_type': [nt.value for nt in norm_type] if isinstance(norm_type, list) else [norm_type.value],
+            'NLtype': [nl.value for nl in NLtype] if isinstance(NLtype, list) else [NLtype.value],
+            'initialize_center': initialize_center if isinstance(initialize_center, list) else [initialize_center],
+            'reg_vals': reg_vals if isinstance(reg_vals, list) else [reg_vals],
+            'output_norm': output_norm if isinstance(output_norm, list) else [output_norm],
+            'filter_dims': [filter_dims] if not isinstance(filter_dims, list) else filter_dims,
+            'window': window if isinstance(window, list) else [window],
+            'padding': padding if isinstance(padding, list) else [padding]
+        }
 
-    def filter_dims(self, *filter_dimses):
-        self.params['filter_dims'] = list(filter_dimses)
-        return self
-    
-    def window(self, *windows):
-        self.params['window'] = list(windows)
+    # make this layer like another layer
+    def like(self, layer):
+        # copy the other layer params into this layer's params
+        self.params = copy.deepcopy(layer.params)
         return self
 
-    def padding(self, *paddings):
-        self.params['padding'] = list(paddings)
-        return self
-    
-    def output_norm(self, *output_norms):
-        self.params['output_norm'] = list(output_norms)
-        return self
+    def build(self):
+        # convert the dictionary of lists into a list of lists of tuples
+        return [[(k,v) for v in vs] for k,vs in self.params.items()]
 
 
 # utility "networks"
@@ -172,7 +163,9 @@ class Input: # holds the input info
         
         # this is a hack so that we can Cartesian product this along with the other nets
         # create a "virtual" layer
-        self.layers = [Layer(params={'name': [self.name]})]
+        self.layers = [Layer()]
+        # extact the list since we are not exploding these layers
+        self.layers[-1].params['internal_layer_type'] = self.layers[-1].params['internal_layer_type'][0]
 
     def to(self, network):
         # set the input_dims of the network to be the desired Input.input_dims
@@ -195,14 +188,17 @@ class Output: # holds the output info
         
         # this is a hack so that we can Cartesian product this along with the other nets
         # create a "virtual" layer
-        self.layers = [Layer(params={'name': [self.name]})]
+        self.layers = [Layer()]
     
     def __str__(self):
         return 'Output name='+self.name+', num_neurons='+str(self.num_neurons)
     
 
 class Add:
-    def __init__(self, networks=None, NLtype=NL.softplus.value):
+    def __init__(self, 
+                 networks=None, 
+                 NLtype=NL.softplus.value, 
+                 bias=False):
         # TODO: this is a little hacky
         num_filters = None
         if networks is not None:
@@ -220,14 +216,7 @@ class Add:
         # NDN params
         self.input_covariate = None # this should always be None for an Operator
         self.ffnet_type = NetworkType.add.value
-
-        # create a passthrough layer for the Sum
-        self.layers = [PassthroughLayer(params={
-            'num_filters': num_filters,
-            'weights_initializer': 'ones',
-            'NLtype': [NLtype],
-            'bias': [True] # needs a bias since it is the only (e.g. last) layer
-        })]
+        self.layers = [PassthroughLayer(num_filters=num_filters, NLtype=NLtype, bias=bias)]
 
         # points its parents (the things to be summed) to this node
         if networks is not None:
@@ -249,7 +238,10 @@ class Add:
 
 
 class Mult:
-    def __init__(self, networks=None):
+    def __init__(self,
+                 networks=None,
+                 NLtype=NL.softplus.value,
+                 bias=False):
         num_filters = None
         # TODO: this is a little hacky
         if networks is not None:
@@ -270,12 +262,7 @@ class Mult:
         self.ffnet_type = NetworkType.mult.value
 
         # create a passthrough layer for the Sum
-        self.layers = [PassthroughLayer(params={
-            'num_filters': num_filters,
-            'weights_initializer': 'ones',
-            'NLtype': [NLtype],
-            'bias': [True] # needs a bias since it is the only (e.g. last) layer
-        })]
+        self.layers = [PassthroughLayer(num_filters=num_filters, NLtype=NLtype, bias=bias)]
 
         # points its parents (the things to be multiplied) to this node
         if networks is not None:
@@ -322,9 +309,7 @@ class Network:
     def to(self, network):
         # if we are going to an output, update our num_filters to be the num_neurons 
         if isinstance(network, Output):
-            if 'num_filters' in self.layers[-1].params:
-                print('NUM_FILTERS', self.name, self.layers[-1].params['num_filters'])
-            assert 'num_filters' not in self.layers[-1].params, 'num_filters should not be set on the last layer going to the Output'
+            assert len(self.layers[-1].params['num_filters']) == 1 and self.layers[-1].params['num_filters'][0] is None, 'num_filters should not be set on the last layer going to the Output'
             self.layers[-1].params['num_filters'] = [network.num_neurons]
         self.output = network
         network.inputs.append(self)
