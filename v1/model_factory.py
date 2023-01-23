@@ -15,7 +15,7 @@ from collections import deque
 # private methods
 # prefix with __ to make it private
 ####### Model --> NDN converters
-def __NetworkParams_to_Network(template_network, prev_created_network, model_params):
+def __NetworkParams_to_Network(template_network, prev_created_network, model_params, verbose):
     node = template_network
     
     if isinstance(node, m.Network):
@@ -34,11 +34,11 @@ def __NetworkParams_to_Network(template_network, prev_created_network, model_par
         new_network = m.Network(layers=layers, name=node.name)
         new_network.index = node.index
         new_network.input_covariate = node.input_covariate
-
-        print('Network', new_network)
-
+        
+        if verbose:
+            print('Network', new_network)
         # Network only has one input, so this is OK
-        new_network.inputs = [_traverse_and_build(node.inputs[0], new_network, model_params)]
+        new_network.inputs = [_traverse_and_build(node.inputs[0], new_network, model_params, verbose)]
         desired_network = new_network
 
     elif isinstance(node, m.Add):
@@ -56,9 +56,10 @@ def __NetworkParams_to_Network(template_network, prev_created_network, model_par
             # create new layer of the given type
             layers.append(type(layer)(layer_params_map))
         add_network.layers = layers # copy the layers over
-        
-        print('Add', add_network)
-        add_network.inputs = [_traverse_and_build(prev_in, add_network, model_params) for prev_in in node.inputs]
+
+        if verbose:
+            print('Add', add_network)
+        add_network.inputs = [_traverse_and_build(prev_in, add_network, model_params, verbose) for prev_in in node.inputs]
         desired_network = add_network
 
     elif isinstance(node, m.Mult):
@@ -76,24 +77,27 @@ def __NetworkParams_to_Network(template_network, prev_created_network, model_par
             # create new layer of the given type
             layers.append(type(layer)(layer_params_map))
         mult_network.layers = layers # copy the layers over
-        
-        print('Mult', mult_network)
-        mult_network.inputs = [_traverse_and_build(prev_in, mult_network, model_params) for prev_in in node.inputs]
+
+        if verbose:
+            print('Mult', mult_network)
+        mult_network.inputs = [_traverse_and_build(prev_in, mult_network, model_params, verbose) for prev_in in node.inputs]
         desired_network = mult_network
 
     elif isinstance(node, m.Input):
         # create the Input network
         input_network = m.Input(node.covariate, node.input_dims)
-        print('Input', input_network)
+        if verbose:
+            print('Input', input_network)
         # input doesn't have any inputs to build, it is the base case
         desired_network = input_network
 
     else: # isinstance(node, m.Output):
         # create the Output network
         output_network = m.Output(node.num_neurons)
-        print('Output', output_network)
+        if verbose:
+            print('Output', output_network)
         # Output only has one input, so this is OK
-        output_network.inputs = [_traverse_and_build(node.inputs[0], output_network, model_params)]
+        output_network.inputs = [_traverse_and_build(node.inputs[0], output_network, model_params, verbose)]
         desired_network = output_network
 
     if prev_created_network is not None:
@@ -103,22 +107,23 @@ def __NetworkParams_to_Network(template_network, prev_created_network, model_par
 
 # traverse the template_model networks and build new networks
 # this will recursively build the expression tree from output to inputs
-def _traverse_and_build(cur_template_network, prev_created_network, model_params):
-    if prev_created_network is None:
-        print(cur_template_network.name, '-->', 'None')
-    elif cur_template_network is None:
-        print('None', '-->', prev_created_network.name)
-    else:
-        print(cur_template_network.name, '-->', prev_created_network.name)
+def _traverse_and_build(cur_template_network, prev_created_network, model_params, verbose):
+    if verbose:
+        if prev_created_network is None:
+            print(cur_template_network.name, '-->', 'None')
+        elif cur_template_network is None:
+            print('None', '-->', prev_created_network.name)
+        else:
+            print(cur_template_network.name, '-->', prev_created_network.name)
 
     # base case
-    return __NetworkParams_to_Network(cur_template_network, prev_created_network, model_params)
+    return __NetworkParams_to_Network(cur_template_network, prev_created_network, model_params, verbose)
 
 
-def __ModelParams_to_Model(template_model, model_params):
-    print('len modelparams', len(model_params))
-    configured_output = _traverse_and_build(template_model.output, None, model_params)
-    print('output', configured_output)
+def __ModelParams_to_Model(template_model, model_params, verbose=False):
+    #print('len modelparams', len(model_params))
+    configured_output = _traverse_and_build(template_model.output, None, model_params, verbose)
+    #print('output', configured_output)
     configured_model = m.Model(configured_output)
     # set the params to keep track of the exact things going into this model
     configured_model.model_configuration = model_params
@@ -158,15 +163,16 @@ def __Network_to_FFnetwork(network):
             ffnet_type=network.ffnet_type)
         
 
-def __Model_to_NDN(model):
+def __Model_to_NDN(model, verbose):
     ffnets = []
     for network in model.networks:
         ffnets.append(__Network_to_FFnetwork(network))
     import pprint
-    print('====FF====')
-    for i in range(len(model.networks)):
-        print('---', model.networks[i].name, '---')
-        pprint.pprint(ffnets[i])
+    if verbose:
+        print('====FF====')
+        for i in range(len(model.networks)):
+            print('---', model.networks[i].name, '---')
+            pprint.pprint(ffnets[i])
     return NDN.NDN(ffnet_list=ffnets)
 
 
@@ -237,14 +243,14 @@ def __explode_params(model):
 
 
 ####### public methods
-def create_models(model_template):
+def create_models(model_template, verbose=False):
     models = []
     
     models_params = __explode_params(model_template)
     
     for model_params in models_params:
-        model =__ModelParams_to_Model(model_template, model_params)
-        NDN = __Model_to_NDN(model)
+        model =__ModelParams_to_Model(model_template, model_params, verbose)
+        NDN = __Model_to_NDN(model, verbose)
         model.NDN = NDN
         models.append(model)
     
