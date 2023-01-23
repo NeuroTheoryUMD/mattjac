@@ -247,6 +247,7 @@ def create_models(model_template, verbose=False):
     models = []
     
     models_params = __explode_params(model_template)
+    print('--->', len(models_params))
     
     for model_params in models_params:
         model =__ModelParams_to_Model(model_template, model_params, verbose)

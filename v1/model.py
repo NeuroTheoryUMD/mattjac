@@ -300,7 +300,7 @@ class Mult:
 
 # network
 class Network:
-    def __init__(self, layers, name=None):
+    def __init__(self, layers, name=None, network_type=NetworkType.normal.value):
         # internal params
         self.model = None # to be able to point to the model we are a part of
         self.name = name
@@ -310,22 +310,21 @@ class Network:
         
         # NDNLayer params
         self.input_covariate = None # the covariate that goes to this network
-        self.ffnet_type = NetworkType.normal.value # default to being a normal network
+        self.ffnet_type = network_type # default to being a normal network
         self.layers = layers
         for layer in self.layers:
             layer.network = self # point the layer back to the network it is a part of
-        
-    def network_type(self, network_type):
-        self.ffnet_type = network_type.value
-        return self
     
     def add_layer(self, layer):
         self.layers.append(layer)
         layer.network = self
         
     def to(self, network):
-        # if we are going to an output, update our num_filters to be the num_neurons
+        # if we are going to an output, update our num_filters to be the num_neurons 
         if isinstance(network, Output):
+            if 'num_filters' in self.layers[-1].params:
+                print('NUM_FILTERS', self.name, self.layers[-1].params['num_filters'])
+            assert 'num_filters' not in self.layers[-1].params, 'num_filters should not be set on the last layer going to the Output'
             self.layers[-1].params['num_filters'] = [network.num_neurons]
         self.output = network
         network.inputs.append(self)
@@ -366,16 +365,6 @@ class Model:
         for idx, network in enumerate(self.networks):
             netidx_to_model[idx] = network
             network.index = idx # set the reversed depth-first index
-        
-    def add_input(self, inp):
-        self.inputs.append(inp)
-    
-    def add_network(self, network):
-        self.networks.append(network)
-        network.model = self
-
-    def set_output(self, outp):
-        self.output = outp
     
     def __str__(self):
         return 'Model len(inputs)'+str(len(self.inputs))+\

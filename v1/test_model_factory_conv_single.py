@@ -23,29 +23,27 @@ def create_adam_params():
     return adam_pars
 
 
-def create_two_simple_networks():
-    layer0 = m.Layer().norm_type(m.Norm.none).NLtype(m.NL.relu).bias(False).initialize_center(True).reg_vals({'l1':0.1, 'localx':0.001, 'bcs':{'d2xt':1}}).num_filters(6)
-    layer1 = m.Layer().norm_type(m.Norm.none).NLtype(m.NL.relu).bias(False).initialize_center(True).reg_vals({'l1':0.1, 'localx':0.001, 'bcs':{'d2xt':1}}).num_filters(6)
-    layer2 = m.Layer().norm_type(m.Norm.none).NLtype(m.NL.relu).bias(False).initialize_center(True).reg_vals({'l1':0.1, 'localx':0.001, 'bcs':{'d2xt':1}}).num_filters(6)
+def create_one_conv_network(verbose=False):
+    netAlayer0 = m.ConvolutionalLayer().norm_type(m.Norm.none).NLtype(m.NL.relu).bias(False).initialize_center(True).reg_vals({'l1':0.1, 'localx':0.001, 'bcs':{'d2xt':1}}).num_filters(2)
+    netAlayer1 = m.ConvolutionalLayer().norm_type(m.Norm.none).NLtype(m.NL.relu).bias(False).initialize_center(True).reg_vals({'l1':0.1, 'localx':0.001, 'bcs':{'d2xt':1}}).num_filters(4)
+    netAlayerReadout = m.Layer().norm_type(m.Norm.none).NLtype(m.NL.relu).bias(False).initialize_center(True).reg_vals({'l1':0.1, 'localx':0.001, 'bcs':{'d2xt':1}})
 
     inp_stim = m.Input(covariate='stim', input_dims=[1,36,1,10])
-    netA = m.Network(layers=[layer0], name='A')
-    netB = m.Network(layers=[layer1, layer2], name='B')
+    netA = m.Network(layers=[netAlayer0, netAlayer1, netAlayerReadout], name='A')
     output_11 = m.Output(num_neurons=11)
 
     inp_stim.to(netA)
-    netA.to(netB)
-    netB.to(output_11)
+    netA.to(output_11)
     model = m.Model(output_11)
 
-    created_models = mf.create_models(model, verbose=False)
+    created_models = mf.create_models(model, verbose)
     return created_models
 
 
 
 ##### NETWORK TESTS ####
-def test_two_network_single_param_creation():
-    created_models = create_two_simple_networks()
+def test_one_conv_network_creation():
+    created_models = create_one_conv_network(verbose=False)
     # test_correct_num_models_created
     assert len(created_models) == 1, 'there should be 4 models created'
 
@@ -107,7 +105,7 @@ def test_two_network_single_param_creation():
     assert netA.layers[0].params['NLtype'] == 'relu'
     assert netA.layers[0].params['bias'] == False
     assert netA.layers[0].params['initialize_center'] == True
-    assert netA.layers[0].params['num_filters'] == 6
+    assert netA.layers[0].params['num_filters'] == 2
     assert netA.layers[0].params['reg_vals'] == {'l1':0.1, 'localx':0.001, 'bcs':{'d2xt':1}}
     assert netA.layers[0].params['input_dims'] == [1,36,1,10]
     # netB.layer0
@@ -117,7 +115,7 @@ def test_two_network_single_param_creation():
     assert netB.layers[0].params['NLtype'] == 'relu'
     assert netB.layers[0].params['bias'] == False
     assert netB.layers[0].params['initialize_center'] == True
-    assert netB.layers[0].params['num_filters'] == 6
+    assert netB.layers[0].params['num_filters'] == 4
     assert netB.layers[0].params['reg_vals'] == {'l1':0.1, 'localx':0.001, 'bcs':{'d2xt':1}}
     assert 'input_dims' not in netB.layers[0].params # these should be empty
     # netB.layer1
@@ -162,7 +160,7 @@ def test_two_network_single_param_creation():
     assert isinstance(ffnetA.layers[0].NL, nn.ReLU)
     #TODO: assert isinstance(ffnetA.layers[0].bias, nn.Parameter) # just check it is the right kind of thing
     #TODO: assert ffnetA.layers[0].initialize_center == True
-    assert ffnetA.layers[0].num_filters == 6
+    assert ffnetA.layers[0].num_filters == 2
     #TODO: assert ffnetA.layers[0].reg_vals == {'l1':0.1, 'localx':0.001, 'bcs':{'d2xt':1}}
     assert ffnetA.layers[0].input_dims == [1,36,1,10]
 
@@ -172,9 +170,9 @@ def test_two_network_single_param_creation():
     assert isinstance(ffnetB.layers[0].NL, nn.ReLU)
     #TODO: assert isinstance(ffnetB.layers[0].bias, nn.Parameter) # just check it is the right kind of thing
     #TODO: assert ffnetB.layers[0].initialize_center == True
-    assert ffnetB.layers[0].num_filters == 6
+    assert ffnetB.layers[0].num_filters == 4
     #TODO: assert ffnetB.layers[0].reg_vals == {'l1':0.1, 'localx':0.001, 'bcs':{'d2xt':1}}
-    assert ffnetB.layers[0].input_dims == [6,1,1,1]
+    assert ffnetB.layers[0].input_dims == [2,1,1,1]
 
     # netB.layer1
     assert isinstance(ffnetB.layers[1], l.NDNLayer) # check that we made the right class type
@@ -184,5 +182,4 @@ def test_two_network_single_param_creation():
     #TODO: assert ffnetB.layers[1].initialize_center == True
     assert ffnetB.layers[1].num_filters == 11 # equal to the num_neurons
     #TODO: assert ffnetB.layers[1].reg_vals == {'l1':0.1, 'localx':0.001, 'bcs':{'d2xt':1}}
-    assert ffnetB.layers[1].input_dims == [6,1,1,1]
-    
+    assert ffnetB.layers[1].input_dims == [4,1,1,1]
