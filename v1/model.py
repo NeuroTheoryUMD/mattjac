@@ -389,6 +389,9 @@ class Model:
             assert network.name not in self.netname_to_model, "networks must have unique names"
             self.netname_to_model[network.name] = network
             network.index = idx # set the reversed depth-first index
+
+    def get_network_names(self):
+        return self.netname_to_model.keys()
     
     def get_network(self, network_name):
         assert network_name in self.netname_to_model, "model does not have a network with that name"

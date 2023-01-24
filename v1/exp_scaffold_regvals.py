@@ -28,11 +28,8 @@ conv_layer0 = m.ConvolutionalLayer(
     NLtype=m.NL.relu,
     bias=False,
     initialize_center=True,
-    reg_vals=[
-        {'d2xt': 0.0001, 'center': None, 'bcs':{'d2xt':1} },
-        {'d2xt': 0.001, 'center': None, 'bcs':{'d2xt':1} }
-    ],
-    num_filters=8,
+    reg_vals={'d2xt': 0.0001, 'center': None, 'bcs':{'d2xt':1} },
+    num_filters=[16,8],
     filter_dims=21,
     window='hamming',
     output_norm='batch',
@@ -85,7 +82,7 @@ exps_to_try = [['expt04'],
                ['expt04', 'expt05', 'expt06'],
                ['expt04', 'expt05', 'expt06', 'expt07'],
                ['expt04', 'expt05', 'expt06', 'expt07', 'expt08']]
-exp_regvals = exp.Experiment('scaffold_conL0_regvals_comb', model_template, datadir, exps_to_try,
+exp_regvals = exp.Experiment('scaffold_convL0_filters', model_template, datadir, exps_to_try,
                              num_lags=num_lags, fit_params=adam_pars, overwrite=True)
 
 exp_regvals.run()

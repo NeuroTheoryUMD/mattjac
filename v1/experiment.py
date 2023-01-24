@@ -217,9 +217,12 @@ class Experiment:
             plt.plot(trial.LLs, label=trial.name)
         plt.legend()
         plt.show()
-
-    def __getitem__(self, idx):
-        return self.trials[idx]
+        
+    def __getitem__(self, trial_name):
+        for trial in self.trials:
+            if trial.name == trial_name:
+                return trial
+        return None
     
     def __len__(self):
         return len(self.trials)
