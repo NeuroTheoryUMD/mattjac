@@ -1,15 +1,20 @@
 # Wrapper model
 import model as m
+import hyperparameter_explorer as hpexplorer
 
 # NDN model
 import NDNT.NDNT as NDN
 from NDNT.modules.layers import *
 from NDNT.networks import *
 
-# stuff to do work
-import copy
-import itertools as it
-from collections import deque
+from enum import Enum
+
+
+# enums to make things easier to remember
+class Explorer(Enum):
+    # assign enums to functions
+    sequential = hpexplorer.sequential
+    grid = hpexplorer.grid
 
 
 # private methods
@@ -182,79 +187,12 @@ def __Model_to_NDN(model, verbose):
     return NDN.NDN(ffnet_list=ffnets)
 
 
-####### Params Exploder
-def __explode_params(model):
-    networks_with_exploded_layers = []
-    for network in model.networks:
-        # replace the 
-        
-        # break apart the layer definitions into
-        # a list of each possible combination of parameters
-        # so each layer definition like:
-        #  [ [subs=[1,2], filter=[3,4],  [subs=[a,b], filter=[c,d] ]
-        #  -->  [
-        #       [[subs=1, filter=3], [subs=1, filter=4],
-        #        [subs=2, filter=3], [subs=2, filter=4]],
-        #
-        #       [[subs=a, filter=b], [subs=a, filter=d],
-        #        [subs=b, filter=e], [subs=b, filter=d]] 
-        exploded_layers = [list(it.product(*layer.build())) for layer in network.layers]
-
-        # break apart the list of each possible combination of parameters
-        # 
-        # so each layer definition like:
-        #  [ [subs=[1,2], filter=[3,4],  [subs=[a,b], filter=[c,d] ]
-        #  -->  [
-        #       [[subs=1, filter=3], [subs=1, filter=4],
-        #        [subs=2, filter=3], [subs=2, filter=4]],
-        #
-        #       [[subs=a, filter=b], [subs=a, filter=d],
-        #        [subs=b, filter=c], [subs=b, filter=d]]
-        #    ]
-        #        
-        #    --> [
-        #         [[subs=1, filter=3], [subs=a, filter=b]],
-        #         [[subs=1, filter=3], [subs=a, filter=d]],
-        #         [[subs=1, filter=3], [subs=b, filter=c]],
-        #         [[subs=1, filter=3], [subs=b, filter=d]],
-        #         ...
-        #         [[subs=2, filter=4], [subs=a, filter=b]],
-        #         [[subs=2, filter=4], [subs=a, filter=d]],
-        #         [[subs=2, filter=4], [subs=b, filter=c]],
-        #         [[subs=2, filter=4], [subs=b, filter=d]],
-        #        ]
-        #           
-        layer_groups = list(it.product(*exploded_layers))
-        networks_with_exploded_layers.append(layer_groups)
-
-    # each network has a (list of layer.configuration_lists)
-    # so we need to cross-product the possible layers in the networks
-    # each 
-    #                 [network.(list of layer.configuration_lists)]
-    #     Network[ 
-    #               Layer[
-    #                     [subs=1, filter=3], [subs=a, filter=c]],
-    #                     [subs=1, filter=3], [subs=a, filter=d]],
-    #                    ]
-    #             ],
-    #     Network[
-    #               Layer[
-    #                     [subs=1, filter=3], [subs=a, filter=c]],
-    #                     [subs=1, filter=3], [subs=a, filter=d]],
-    #                    ]
-    #             ]
-    #     ...
-    #         ]
-    model_configurations = list(it.product(*networks_with_exploded_layers))
-    return model_configurations
-
-
-
 ####### public methods
-def create_models(model_template, verbose=False):
+# TODO: use the sequential explorer by default
+def generate(model_template, explorer=Explorer.grid, verbose=False):
     models = []
     
-    models_params = __explode_params(model_template)
+    models_params = explorer(model_template)
     
     for model_params in models_params:
         model =__ModelParams_to_Model(model_template, model_params, verbose)

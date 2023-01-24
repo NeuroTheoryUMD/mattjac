@@ -1,26 +1,12 @@
-import model_factory as mf
+import model_generator as mgen
 import model as m
-import torch
-import NDNT.utils as utils # some other utilities
 import NDNT.modules.layers as l
-import NDNT.modules.activations as acts # for some activations
 from torch import nn # for other activations
 
 # prevent pytest from truncating long lines
 from _pytest.assertion import truncate
 truncate.DEFAULT_MAX_LINES = 9999
 truncate.DEFAULT_MAX_CHARS = 9999
-
-device = torch.device('cuda:0')
-
-def create_adam_params():
-    # create ADAM params
-    adam_pars = utils.create_optimizer_params(
-        optimizer_type='AdamW', batch_size=2000, num_workers=0,
-        learning_rate=0.01, early_stopping_patience=4,
-        optimize_graph=False, weight_decay = 0.1)
-    adam_pars['device'] = device
-    return adam_pars
 
 
 def create_two_ff_multi_networks(verbose=False):
@@ -58,7 +44,7 @@ def create_two_ff_multi_networks(verbose=False):
     netB.to(output_11)
     model = m.Model(output_11)
 
-    created_models = mf.create_models(model, verbose)
+    created_models = mgen.generate(model, explorer=mgen.Explorer.grid, verbose=verbose)
     return created_models
 
 
