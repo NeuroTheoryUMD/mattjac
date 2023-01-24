@@ -6,7 +6,9 @@ import json
 import torch
 import tqdm
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
+import seaborn as sns
 import model_factory as mf
 
 from NTdatasets.generic import GenericDataset
@@ -211,12 +213,24 @@ class Experiment:
         return self.trials
     
     
-    def plot_LLs(self):
-        plt.figure()
+    def plot_LLs(self, figsize=(15,5)):
+        # get maximum num_neurons for the experiment
+        max_num_neurons = 0
         for trial in self.trials:
-            plt.plot(trial.LLs, label=trial.name)
-        plt.legend()
-        plt.show()
+            if trial.model.output.num_neurons > max_num_neurons:
+                max_num_neurons = trial.model.output.num_neurons
+        
+        df = pd.DataFrame({
+            'Neuron': ['N'+str(n) for n in range(max_num_neurons)],
+        })
+        for trial in self.trials:
+            df[trial.name] = np.concatenate((trial.LLs, np.zeros(max_num_neurons-len(trial.LLs), dtype=np.float32)))
+        fig, ax1 = plt.subplots(figsize=figsize)
+        tidy = df.melt(id_vars='Neuron').rename(columns=str.title)
+        ax = sns.barplot(x='Neuron', y='Value', hue='Variable', data=tidy, ax=ax1)
+        ax.set(xlabel='Neuron', ylabel='Log-Likelihood')
+        plt.legend(title='Model')
+        sns.despine(fig)
         
     def __getitem__(self, trial_name):
         for trial in self.trials:
