@@ -202,6 +202,14 @@ class Output: # holds the output info
         # create a "virtual" layer
         self.layers = [Layer()]
     
+    def update_num_neurons(self, num_neurons):
+        # this will iterate over its inputs,
+        # and update their last layer.num_filters to be num_neurons
+        # TODO: it is kind of a hack...
+        assert len(self.inputs) == 1, 'Output can only have one input'
+        self.num_neurons = num_neurons
+        self.inputs[0].layers[-1].params['num_filters'] = [num_neurons]
+    
     def __str__(self):
         return 'Output name='+self.name+', num_neurons='+str(self.num_neurons)
     
@@ -268,20 +276,15 @@ class Mult:
         self.name = '*'
         if networks is not None: # TODO: kind of a hack
             self.name = '*'.join(network.name for network in networks)
-            
+
         self.index = -1 # index of network in the list of networks
-        assert len(networks) > 1, 'At least 2 networks are required to Mult'
-        self.networks_to_mult = list(networks)
-        self.inputs = list(networks)
+        self.inputs = networks
         self.output = None
-        
+
         # NDN params
         self.input_covariate = None # this should always be None for an Operator
         self.ffnet_type = NetworkType.mult.value
-
-        # create a passthrough layer for the Sum
         self.layers = [PassthroughLayer(num_filters=num_filters, NLtype=NLtype, bias=bias)]
-
         # points its parents (the things to be multiplied) to this node
         if networks is not None:
             for network in networks:
@@ -324,13 +327,14 @@ class Network:
         layer.network = self
         
     def to(self, network):
-        # if we are going to an output, update our num_filters to be the num_neurons 
+        network.inputs.append(self)
+        self.output = network
         if isinstance(network, Output):
             assert len(self.layers[-1].params['num_filters']) == 1 and self.layers[-1].params['num_filters'][0] is None, 'num_filters should not be set on the last layer going to the Output'
-            self.layers[-1].params['num_filters'] = [network.num_neurons]
-        self.output = network
-        network.inputs.append(self)
-
+            # TODO: maybe it is gross, 
+            # but update this output layer num_filters to match the num_neurons
+            network.update_num_neurons(network.num_neurons) 
+            
     def __str__(self):
         return 'Network name='+self.name+' '+str(self.index)+', len(layers)='+str(len(self.layers))+', inputs='+','.join([str([inp]) for inp in self.inputs])
 
