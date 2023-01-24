@@ -15,4 +15,7 @@ v1/Mdata
 v1/NDNT
 v1/NTdatasets
 v1/checkpoints
+v1/figs
+v1/nim
+v1/experiments
 v1/__pycache__

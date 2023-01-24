@@ -102,6 +102,7 @@ def test_one_conv_network_creation():
     # test_correct_layers_created
     # netA.layer0
     assert netA.layers[0].network is netA
+    assert netA.layers[0].index == 0
     assert netA.layers[0].params['internal_layer_type'] is l.ConvLayer
     assert netA.layers[0].params['norm_type'] == 0
     assert netA.layers[0].params['NLtype'] == 'relu'
@@ -115,6 +116,7 @@ def test_one_conv_network_creation():
     assert netA.layers[0].params['window'] == 'hamming'
     # netA.layer1
     assert netA.layers[1].network is netA
+    assert netA.layers[1].index == 1
     assert netA.layers[1].params['internal_layer_type'] is l.NDNLayer
     assert netA.layers[1].params['norm_type'] == 0
     assert netA.layers[1].params['NLtype'] == 'relu'

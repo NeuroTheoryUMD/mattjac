@@ -58,7 +58,7 @@ def load(expname, folder='experiments'): # load experiment
     exp_dir = os.path.join(folder, expname)
     with open(os.path.join(exp_dir, 'exp_params.pickle'), 'rb') as f:
         exp_params = pickle.load(f)
-        
+    
     experiment = Experiment(expname,
                             model_template=exp_params['model_template'],
                             datadir=exp_params['datadir'],
@@ -100,9 +100,6 @@ class Trial:
     # TODO: make fit and eval separate?
     
     def run(self):
-        # make the trial folder to save the results to
-        os.mkdir(self.trial_directory)
-        
         if self.data is None: # be lazy
             self.data = _load_data(**self.data_loc)
         
@@ -113,6 +110,9 @@ class Trial:
         # eval model
         self.LLs = self.model.NDN.eval_models(self.data[self.data.val_inds], 
                                      null_adjusted=True)
+
+        # make the trial folder to save the results to
+        os.mkdir(self.trial_directory)
 
         # save model
         with open(os.path.join(self.trial_directory, 'model.pickle'), 'wb') as f:
@@ -139,17 +139,17 @@ class Trial:
 # given the desired params and data to test as different trials
 class Experiment:
     def __init__(self, name, model_template, datadir, list_of_expnames, num_lags, fit_params, folder='experiments', overwrite=False, load=False):
-        self.directory = os.path.join(folder, name)
+        self.folder = os.path.join(folder, name)
         if not load: # TODO: this is also hacky...
-            experiment_exists = os.path.exists(self.directory)
+            experiment_exists = os.path.exists(self.folder)
             if overwrite:
                 if experiment_exists: # delete the previous experiment
-                    shutil.rmtree(self.directory, ignore_errors=True)
-                os.makedirs(self.directory)
+                    shutil.rmtree(self.folder, ignore_errors=True)
+                os.makedirs(self.folder)
             else: # don't overwrite
                 assert not experiment_exists, "experiment \""+name+"\" already exists"
-                # make experiment directory
-                os.makedirs(self.directory)
+                # make experiment folder
+                os.makedirs(self.folder)
         
         if not isinstance(fit_params, list):
             fit_params = [fit_params]
@@ -192,7 +192,7 @@ class Experiment:
                               num_lags=self.num_lags)
 
             # modify the model_template.output to match the data.NC before creating
-            print('Updating model neurons to:', data.NC)
+            print('Updating model output neurons to:', data.NC)
             self.model_template.output.update_num_neurons(data.NC)
             
             models_to_try = mf.create_models(self.model_template)
@@ -203,7 +203,7 @@ class Experiment:
                     # TODO: pass in the correct params that trial needs now
                     trial = Trial(trial_name, model, self.datadir,
                                   expnames, self.num_lags,
-                                  fit_params, directory=self.directory)
+                                  fit_params, folder=self.folder)
                     print('Fitting model', mi)
                     trial.run()
                     self.trials.append(trial)

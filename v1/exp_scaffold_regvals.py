@@ -13,25 +13,13 @@ import model as m
 device = torch.device("cuda:1")
 dtype = torch.float32
 
-
-# Load Data
+# load sample dataset to construct the model appropriately
+datadir = './Mdata/'
 num_lags = 10
 expts = ['expt04']
-# this can handle multiple experiments
-#expts = ['expt04', 'expt05']
-
 data = MultiDataset(
-    datadir='./Mdata/', filenames=expts, include_MUs=False,
+    datadir=datadir, filenames=expts, include_MUs=False,
     time_embed=True, num_lags=num_lags )
-print("%d cells, %d time steps."%(data.NC, data.NT))
-
-
-# create ADAM params
-adam_pars = utils.create_optimizer_params(
-    optimizer_type='AdamW', batch_size=2000, num_workers=0,
-    learning_rate=0.01, early_stopping_patience=4,
-    optimize_graph=False, weight_decay = 0.1)
-adam_pars['device'] = device
 
 
 # create the Model
@@ -82,10 +70,22 @@ scaffold_net.to(readout_net)
 readout_net.to(output_11)
 model_template = m.Model(output_11)
 
-created_models = mf.create_models(model_template, verbose=False)
-print('created', len(created_models), 'models')
+
+# create ADAM params
+adam_pars = utils.create_optimizer_params(
+    optimizer_type='AdamW', batch_size=2000, num_workers=0,
+    learning_rate=0.01, early_stopping_patience=4,
+    optimize_graph=False, weight_decay = 0.1)
+adam_pars['device'] = device
 
 
 # run experiment
-exp_regvals = exp.Experiment('scaffold_reg_vals', model_template, data, adam_pars, overwrite=True)
+exps_to_try = [['expt04'],
+               ['expt04', 'expt05'],
+               ['expt04', 'expt05', 'expt06'],
+               ['expt04', 'expt05', 'expt06', 'expt07'],
+               ['expt04', 'expt05', 'expt06', 'expt07', 'expt08']]
+exp_regvals = exp.Experiment('scaffold_conL0_regvals_comb', model_template, datadir, exps_to_try,
+                             num_lags=num_lags, fit_params=adam_pars, overwrite=True)
+
 exp_regvals.run()

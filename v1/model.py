@@ -84,6 +84,7 @@ class Layer:
             'pos_constraint': pos_constraint if isinstance(pos_constraint, list) else [pos_constraint]
         }
         self.network = None # to be able to point to the network we are a part of
+        self.index = None # to be able to point to the layer we are a part of in the NDN
         # TODO: be able to set this layer's weights as the 
         #       weights of a previous layer that maybe we can access by name
         #       from the Model API
@@ -100,6 +101,9 @@ class Layer:
         # convert the dictionary of lists into a list of lists of tuples
         return [[(k,v) for v in vs] for k,vs in self.params.items()]
 
+    def get_weights(self):
+        return self.network.model.NDN.networks[self.network.index].layers[self.index].get_weights()
+
 
 # layer subclasses
 class PassthroughLayer:
@@ -115,10 +119,14 @@ class PassthroughLayer:
             'weights_initializer': ['ones']
         }
         self.network = None # to be able to point to the network we are a part of
+        self.index = 0 # to be able to point to the layer we are a part of in the NDN
 
     def build(self):
         # convert the dictionary of lists into a list of lists of tuples
         return [[(k,v) for v in vs] for k,vs in self.params.items()]
+
+    def get_weights(self):
+        return self.network.model.NDN.networks[self.network.index].layers[self.index].get_weights()
 
 
 class ConvolutionalLayer:
@@ -151,6 +159,8 @@ class ConvolutionalLayer:
             'padding': padding if isinstance(padding, list) else [padding],
             'pos_constraint': pos_constraint if isinstance(pos_constraint, list) else [pos_constraint]
         }
+        self.network = None # to be able to point to the network we are a part of
+        self.index = None # to be able to point to the layer we are a part of in the NDN
 
     # make this layer like another layer
     def like(self, layer):
@@ -161,6 +171,9 @@ class ConvolutionalLayer:
     def build(self):
         # convert the dictionary of lists into a list of lists of tuples
         return [[(k,v) for v in vs] for k,vs in self.params.items()]
+
+    def get_weights(self):
+        return self.network.model.NDN.networks[self.network.index].layers[self.index].get_weights()
 
 
 # utility "networks"
@@ -319,7 +332,8 @@ class Network:
         self.input_covariate = None # the covariate that goes to this network
         self.ffnet_type = network_type.value # get the value out of the network_type
         self.layers = layers
-        for layer in self.layers:
+        for li, layer in enumerate(self.layers):
+            layer.index = li
             layer.network = self # point the layer back to the network it is a part of
     
     def add_layer(self, layer):
@@ -333,8 +347,8 @@ class Network:
             assert len(self.layers[-1].params['num_filters']) == 1 and self.layers[-1].params['num_filters'][0] is None, 'num_filters should not be set on the last layer going to the Output'
             # TODO: maybe it is gross, 
             # but update this output layer num_filters to match the num_neurons
-            network.update_num_neurons(network.num_neurons) 
-            
+            network.update_num_neurons(network.num_neurons)
+    
     def __str__(self):
         return 'Network name='+self.name+' '+str(self.index)+', len(layers)='+str(len(self.layers))+', inputs='+','.join([str([inp]) for inp in self.inputs])
 
@@ -353,7 +367,9 @@ class Model:
         self.output = output
         
         # network.index --> network map
-        netidx_to_model = {}
+        self.netidx_to_model = {}
+        # network.name --> network map
+        self.netname_to_model = {}
         
         for network in self.traverse():
             # create groups
@@ -369,8 +385,14 @@ class Model:
         # we need to reverse the network list and the associated indices
         self.networks.reverse()
         for idx, network in enumerate(self.networks):
-            netidx_to_model[idx] = network
+            self.netidx_to_model[idx] = network
+            assert network.name not in self.netname_to_model, "networks must have unique names"
+            self.netname_to_model[network.name] = network
             network.index = idx # set the reversed depth-first index
+    
+    def get_network(self, network_name):
+        assert network_name in self.netname_to_model, "model does not have a network with that name"
+        return self.netname_to_model[network_name]
     
     def __str__(self):
         return 'Model len(inputs)'+str(len(self.inputs))+\

@@ -170,6 +170,7 @@ def test_two_ff_single_creation():
     # test_correct_layers_created
     # netA.layer0
     assert netA.layers[0].network is netA
+    assert netA.layers[0].index == 0
     assert netA.layers[0].params['internal_layer_type'] is l.NDNLayer
     assert netA.layers[0].params['norm_type'] == 0
     assert netA.layers[0].params['NLtype'] == 'relu'
@@ -180,6 +181,7 @@ def test_two_ff_single_creation():
     assert netA.layers[0].params['input_dims'] == [1,36,1,10]
     # netB.layer0
     assert netB.layers[0].network is netB
+    assert netB.layers[0].index == 0
     assert netB.layers[0].params['internal_layer_type'] is l.NDNLayer
     assert netB.layers[0].params['norm_type'] == 0
     assert netB.layers[0].params['NLtype'] == 'relu'
@@ -190,6 +192,7 @@ def test_two_ff_single_creation():
     assert 'input_dims' not in netB.layers[0].params # these should be empty
     # netB.layer1
     assert netB.layers[1].network is netB
+    assert netB.layers[1].index == 1
     assert netB.layers[1].params['internal_layer_type'] is l.NDNLayer
     assert netB.layers[1].params['norm_type'] == 0
     assert netB.layers[1].params['NLtype'] == 'relu'
@@ -322,6 +325,7 @@ def test_three_ff_single_creation():
     # test_correct_layers_created
     # netA.layer0
     assert netA.layers[0].network is netA
+    assert netA.layers[0].index == 0
     assert netA.layers[0].params['internal_layer_type'] is l.NDNLayer
     assert netA.layers[0].params['norm_type'] == 0
     assert netA.layers[0].params['NLtype'] == 'relu'
@@ -332,6 +336,7 @@ def test_three_ff_single_creation():
     assert netA.layers[0].params['input_dims'] == [1,36,1,10]
     # netB.layer0
     assert netB.layers[0].network is netB
+    assert netB.layers[1].index == 1
     assert netB.layers[0].params['internal_layer_type'] is l.NDNLayer
     assert netB.layers[0].params['norm_type'] == 0
     assert netB.layers[0].params['NLtype'] == 'relu'
@@ -342,6 +347,7 @@ def test_three_ff_single_creation():
     assert 'input_dims' not in netB.layers[0].params # these should be empty
     # netB.layer1
     assert netB.layers[1].network is netB
+    assert netB.layers[1].index == 1
     assert netB.layers[1].params['internal_layer_type'] is l.NDNLayer
     assert netB.layers[1].params['norm_type'] == 0
     assert netB.layers[1].params['NLtype'] == 'relu'
@@ -352,6 +358,7 @@ def test_three_ff_single_creation():
     assert 'input_dims' not in netB.layers[1].params # these should be empty    
     # netC.layer0
     assert netC.layers[0].network is netC
+    assert netC.layers[0].index == 0
     assert netC.layers[0].params['internal_layer_type'] is l.NDNLayer
     assert netC.layers[0].params['norm_type'] == 0
     assert netC.layers[0].params['NLtype'] == 'relu'
