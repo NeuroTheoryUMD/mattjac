@@ -1,11 +1,11 @@
 import copy # needed to handle annoying python pass by reference
-
-
-from NDNT.modules.layers import *
-
 import networkx as nx
-
 from enum import Enum
+
+# NDN imports
+import NDNT.NDNT as NDN
+from NDNT.modules.layers import *
+from NDNT.networks import *
 
 
 # enums to make things easier to remember
@@ -48,41 +48,66 @@ class NetworkType(Enum):
 
 
 # layer
-# TODO: don't make the params dict here, instead keep internal properties
-#       and then turn them into the list of tuples in the build() method.
-#       This will require updating how params are set in the model_factory, if we go this way.
-# However, it will make it easier to subclass and add properties in future.
-
 # need to deepcopy the params
 # to get around weird python inheritance junk
 # where subclasses overwrite the superclass state
 # https://stackoverflow.com/questions/15469579/when-i-instantiate-a-python-subclass-it-overwrites-base-class-attribute
-class Layer:
-    # TODO: make the params a kwarg list, we can specify required and optional params this way
+# defines superset of all possible params
+# converts params that are provided to the value required by the NDN
+def _convert_params(internal_layer_type,
+                    filter_dims:list = None,
+                    window:str = None,
+                    padding:str = None,
+                    num_filters:int = None,
+                    num_inh:int = None,
+                    bias:bool = None,
+                    norm_type:Norm = None,
+                    NLtype:NL = None,
+                    initialize_center:bool = None,
+                    reg_vals:dict = None,
+                    output_norm:bool = None,
+                    pos_constraint:bool = None):
+    params = {
+        'internal_layer_type': internal_layer_type
+    }
+
+    if filter_dims is not None: params['filter_dims'] = filter_dims
+    if window is not None: params['window'] = window
+    if padding is not None: params['padding'] = padding
+    if num_filters is not None: params['num_filters'] = num_filters
+    if num_inh is not None: params['num_inh'] = num_inh
+    if bias is not None: params['bias'] = bias
+    if norm_type is not None: params['norm_type'] = norm_type.value
+    if NLtype is not None: params['NLtype'] = NLtype.value
+    if initialize_center is not None: params['initialize_center'] = initialize_center
+    if reg_vals is not None: params['reg_vals'] = reg_vals
+    if output_norm is not None: params['output_norm'] = output_norm
+    if pos_constraint is not None: params['pos_constraint'] = pos_constraint
     
-    def __init__(self, 
-                 num_filters=None,
-                 num_inh=0,
-                 bias=False,
-                 norm_type = Norm.none,
-                 NLtype=NL.linear,
-                 initialize_center=False,
-                 reg_vals=None,
-                 output_norm=None,
-                 pos_constraint=False):
-        # convert the passed in params to list if they are not already
-        self.params = {
-            'internal_layer_type': [NDNLayer],
-            'num_filters': num_filters if isinstance(num_filters, list) else [num_filters],
-            'num_inh': num_inh if isinstance(num_inh, list) else [num_inh],
-            'bias': bias if isinstance(bias, list) else [bias],
-            'norm_type': [nt.value for nt in norm_type] if isinstance(norm_type, list) else [norm_type.value],
-            'NLtype': [nl.value for nl in NLtype] if isinstance(NLtype, list) else [NLtype.value],
-            'initialize_center': initialize_center if isinstance(initialize_center, list) else [initialize_center],
-            'reg_vals': reg_vals if isinstance(reg_vals, list) else [reg_vals],
-            'output_norm': output_norm if isinstance(output_norm, list) else [output_norm],
-            'pos_constraint': pos_constraint if isinstance(pos_constraint, list) else [pos_constraint]
-        }
+    return params
+    
+
+class Layer:
+    def __init__(self,
+                 num_filters:int = None,
+                 num_inh:int = None,
+                 bias:bool = None,
+                 norm_type:Norm = None,
+                 NLtype:NL = None,
+                 initialize_center:bool = None,
+                 reg_vals:dict = None,
+                 output_norm:bool = None,
+                 pos_constraint:bool = None):
+        self.params = _convert_params(internal_layer_type = NDNLayer,
+                                      num_filters = num_filters,
+                                      num_inh=num_inh,
+                                      bias = bias,
+                                      norm_type = norm_type,
+                                      NLtype = NLtype,
+                                      initialize_center = initialize_center,
+                                      reg_vals = reg_vals,
+                                      output_norm = output_norm,
+                                      pos_constraint = pos_constraint)
         self.network = None # to be able to point to the network we are a part of
         self.index = None # to be able to point to the layer we are a part of in the NDN
         # TODO: be able to set this layer's weights as the 
@@ -109,15 +134,13 @@ class Layer:
 class PassthroughLayer:
     def __init__(self, 
                  num_filters=None,
-                 bias=False,
-                 NLtype=NL.linear):
-        self.params = {
-            'internal_layer_type': [ChannelLayer],
-            'num_filters': num_filters if isinstance(num_filters, list) else [num_filters],
-            'NLtype': [nl.value for nl in NLtype] if isinstance(NLtype, list) else [NLtype.value],
-            'bias': bias if isinstance(bias, list) else [bias],
-            'weights_initializer': ['ones']
-        }
+                 bias=None,
+                 NLtype=None):
+        self.params = _convert_params(internal_layer_type = ChannelLayer,
+                                      num_filters = num_filters,
+                                      bias = bias,
+                                      NLtype = NLtype)
+        
         self.network = None # to be able to point to the network we are a part of
         self.index = 0 # to be able to point to the layer we are a part of in the NDN
 
@@ -143,22 +166,19 @@ class ConvolutionalLayer:
                  reg_vals=None,
                  output_norm=None,
                  pos_constraint=False):
-        # convert the passed in params to list if they are not already
-        self.params = {
-            'internal_layer_type': [ConvLayer],
-            'num_filters': num_filters if isinstance(num_filters, list) else [num_filters],
-            'num_inh': num_inh if isinstance(num_inh, list) else [num_inh],
-            'bias': bias if isinstance(bias, list) else [bias],
-            'norm_type': [nt.value for nt in norm_type] if isinstance(norm_type, list) else [norm_type.value],
-            'NLtype': [nl.value for nl in NLtype] if isinstance(NLtype, list) else [NLtype.value],
-            'initialize_center': initialize_center if isinstance(initialize_center, list) else [initialize_center],
-            'reg_vals': reg_vals if isinstance(reg_vals, list) else [reg_vals],
-            'output_norm': output_norm if isinstance(output_norm, list) else [output_norm],
-            'filter_dims': [filter_dims] if not isinstance(filter_dims, list) else filter_dims,
-            'window': window if isinstance(window, list) else [window],
-            'padding': padding if isinstance(padding, list) else [padding],
-            'pos_constraint': pos_constraint if isinstance(pos_constraint, list) else [pos_constraint]
-        }
+        self.params = _convert_params(internal_layer_type = ConvLayer,
+                                      filter_dims = filter_dims,
+                                      window = window,
+                                      padding = padding,
+                                      num_filters = num_filters,
+                                      num_inh=num_inh,
+                                      bias = bias,
+                                      norm_type = norm_type,
+                                      NLtype = NLtype,
+                                      initialize_center = initialize_center,
+                                      reg_vals = reg_vals,
+                                      output_norm = output_norm,
+                                      pos_constraint = pos_constraint)
         self.network = None # to be able to point to the network we are a part of
         self.index = None # to be able to point to the layer we are a part of in the NDN
 
@@ -167,10 +187,6 @@ class ConvolutionalLayer:
         # copy the other layer params into this layer's params
         self.params = copy.deepcopy(layer.params)
         return self
-
-    def build(self):
-        # convert the dictionary of lists into a list of lists of tuples
-        return [[(k,v) for v in vs] for k,vs in self.params.items()]
 
     def get_weights(self):
         return self.network.model.NDN.networks[self.network.index].layers[self.index].get_weights()
@@ -185,17 +201,11 @@ class Input: # holds the input info
         self.input_dims = input_dims
         self.inputs = [] # this should always be empty for an Input
         self.output = None
-        
-        # this is a hack so that we can Cartesian product this along with the other nets
-        # create a "virtual" layer
-        self.layers = [Layer()]
-        # extact the list since we are not exploding these layers
-        self.layers[-1].params['internal_layer_type'] = self.layers[-1].params['internal_layer_type'][0]
 
     def to(self, network):
         # set the input_dims of the network to be the desired Input.input_dims
         network.input_covariate = self.covariate
-        network.layers[0].params['input_dims'] = [self.input_dims]
+        network.layers[0].params['input_dims'] = self.input_dims
         self.output = network
         network.inputs.append(self)
 
@@ -210,18 +220,13 @@ class Output: # holds the output info
         self.num_neurons = num_neurons
         self.inputs = []
         self.output = None
-        
-        # this is a hack so that we can Cartesian product this along with the other nets
-        # create a "virtual" layer
-        self.layers = [Layer()]
     
     def update_num_neurons(self, num_neurons):
         # this will iterate over its inputs,
         # and update their last layer.num_filters to be num_neurons
-        # TODO: it is kind of a hack...
         assert len(self.inputs) == 1, 'Output can only have one input'
         self.num_neurons = num_neurons
-        self.inputs[0].layers[-1].params['num_filters'] = [num_neurons]
+        self.inputs[0].layers[-1].params['num_filters'] = num_neurons
     
     def __str__(self):
         return 'Output name='+self.name+', num_neurons='+str(self.num_neurons)
@@ -238,7 +243,6 @@ class Add:
             num_filters = networks[0].layers[-1].params['num_filters']
             # make sure that the networks all have the same num_filters in their output
             for network in networks:
-                assert len(network.layers[-1].params['num_filters']) == 1, "inputs into an Add must only have a single num_filter"
                 assert network.layers[-1].params['num_filters'] == num_filters, "input networks must all have the same num_filters"
 
         self.name = '+'
@@ -262,7 +266,7 @@ class Add:
     def to(self, network):
         # if we are going to an output, update our num_filters to be the num_neurons
         if isinstance(network, Output):
-            self.layers[-1].params['num_filters'] = [network.num_neurons]
+            self.layers[-1].params['num_filters'] = network.num_neurons
         self.output = network
         network.inputs.append(self)
 
@@ -306,7 +310,7 @@ class Mult:
     def to(self, network):
         # if we are going to an output, update our num_filters to be the num_neurons
         if isinstance(network, Output):
-            self.layers[-1].params['num_filters'] = [network.num_neurons]
+            self.layers[-1].params['num_filters'] = network.num_neurons
         self.output = network
         network.inputs.append(self)
 
@@ -344,7 +348,7 @@ class Network:
         network.inputs.append(self)
         self.output = network
         if isinstance(network, Output):
-            assert len(self.layers[-1].params['num_filters']) == 1 and self.layers[-1].params['num_filters'][0] is None, 'num_filters should not be set on the last layer going to the Output'
+            assert 'num_filters' not in self.layers[-1].params, 'num_filters should not be set on the last layer going to the Output'
             # TODO: maybe it is gross, 
             # but update this output layer num_filters to match the num_neurons
             network.update_num_neurons(network.num_neurons)
@@ -354,14 +358,53 @@ class Network:
 
 
 # model
-class Model:
-    def __init__(self, output):
-        self.NDN = None # set this Model's NDN to None to start
-        # the template configuration for this model
-        # to make it easy to compare hyperparameter differences between models
-        # in a nice 2D combination chart!
-        self.model_configuration = None
+def _Network_to_FFnetwork(network):
+    # add layers to the network
+    NDNLayers = []
+    for li, layer in enumerate(network.layers):
+        # get the layer_type
+        layer_type = layer.params['internal_layer_type']
 
+        # get params to pass
+        sanitized_layer_params = {}
+        for k,v in layer.params.items():
+            # skip internal params
+            if not 'internal' in k:
+                sanitized_layer_params[k] = v
+
+        NDNLayers.append(layer_type.layer_dict(**sanitized_layer_params))
+
+    # if the network gets input from an Input (e.g. has input_covariate)
+    if network.input_covariate is not None:
+        return FFnetwork.ffnet_dict(
+            xstim_n=network.input_covariate,
+            ffnet_n=None,
+            layer_list=NDNLayers,
+            ffnet_type=network.ffnet_type)
+    else: # if the network gets inputs from other Networks
+        return FFnetwork.ffnet_dict(
+            xstim_n=None,
+            ffnet_n=[inp.index for inp in network.inputs],
+            layer_list=NDNLayers,
+            ffnet_type=network.ffnet_type)
+
+
+def _Model_to_NDN(model, verbose):
+    ffnets = []
+    for network in model.networks:
+        ffnets.append(_Network_to_FFnetwork(network))
+    import pprint
+    if verbose:
+        print('====FF====')
+        for i in range(len(model.networks)):
+            print('---', model.networks[i].name, '---')
+            pprint.pprint(ffnets[i])
+    return NDN.NDN(ffnet_list=ffnets)
+
+
+class Model:
+    def __init__(self, output, verbose=False):
+        self.NDN = None # set this Model's NDN to None to start
         self.inputs = []
         self.networks = []
         self.output = output
@@ -389,6 +432,14 @@ class Model:
             assert network.name not in self.netname_to_model, "networks must have unique names"
             self.netname_to_model[network.name] = network
             network.index = idx # set the reversed depth-first index
+
+        # create the NDN now
+        self.NDN = _Model_to_NDN(self, verbose)
+
+    def update_num_neurons(self, num_neurons, verbose=False):
+        self.output.update_num_neurons(num_neurons)
+        # update the NDN as well
+        self.NDN = _Model_to_NDN(self, verbose)
 
     def get_network_names(self):
         return self.netname_to_model.keys()
@@ -434,4 +485,3 @@ class Model:
                 
         # draw graph
         nx.draw_networkx(g, with_labels=True)
-

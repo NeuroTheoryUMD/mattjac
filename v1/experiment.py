@@ -1,216 +1,175 @@
 import os
-import glob
 import shutil
 import pickle
-import json
-import torch
-import tqdm
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-import model_factory as mf
-
-from NTdatasets.generic import GenericDataset
-from NTdatasets.cumming.monocular import MultiDataset
+import model as mod
+from enum import Enum
 
 
 # loading functions
-def _load_data(datadir,
-                expnames,
-                num_lags,
-                include_MUs=False,
-                time_embed=True):
-    return MultiDataset(
-        datadir=datadir, filenames=expnames, include_MUs=include_MUs,
-        time_embed=time_embed, num_lags=num_lags)
-
 # unpickle the pickles and make a Trial object
-def _load_trial(trial_name, expname, folder, lazy=True): # lazy=True to lazy load the dataset
-    trial_directory = os.path.join(folder, expname, trial_name)
+def _load_trial(trial_name, experiment_folder, lazy=True): # lazy=True to lazy load the dataset
+    trial_directory = os.path.join(experiment_folder, trial_name)
     
     # load model
     with open(os.path.join(trial_directory, 'model.pickle'), 'rb') as f:
         model = pickle.load(f)
 
-    # load params
-    with open(os.path.join(trial_directory, 'fit_params.pickle'), 'rb') as f:
-        fit_params = pickle.load(f)
-
     # load LLs
     with open(os.path.join(trial_directory, 'LLs.pickle'), 'rb') as f:
         LLs = np.array(pickle.load(f))
 
-    # load data_loc
-    with open(os.path.join(trial_directory, 'data_loc.pickle'), 'rb') as f:
-        data_loc = pickle.load(f)
+    # load trial_info
+    with open(os.path.join(trial_directory, 'trial_info.pickle'), 'rb') as f:
+        trial_info = pickle.load(f)
         
-    trial = Trial(name=trial_name,
+    # load the dataset
+    dataset = None
+    if not lazy:
+        dataset = trial_info.dataset_class(**trial_info.dataset_params)
+        
+    trial = Trial(trial_info=trial_info,
                   model=model,
-                  datadir=data_loc['datadir'],
-                  expnames=data_loc['expnames'],
-                  num_lags=data_loc['num_lags'],
-                  fit_params=fit_params,
-                  folder=folder)
+                  dataset=dataset)
     trial.LLs = LLs
-    
     return trial
 
-def load(expname, folder='experiments'): # load experiment
-    exp_dir = os.path.join(folder, expname)
-    with open(os.path.join(exp_dir, 'exp_params.pickle'), 'rb') as f:
+def load(expname, experiment_location='experiments', lazy=False): # load experiment
+    experiment_folder = os.path.join(experiment_location, expname)
+    with open(os.path.join(experiment_folder, 'exp_params.pickle'), 'rb') as f:
         exp_params = pickle.load(f)
     
-    experiment = Experiment(expname,
-                            model_template=exp_params['model_template'],
-                            datadir=exp_params['datadir'],
-                            list_of_expnames=exp_params['list_of_expnames'],
-                            num_lags=exp_params['num_lags'],
-                            fit_params=exp_params['fit_params'],
-                            load=True)
+    experiment = Experiment(name=expname,
+                            description=exp_params['description'],
+                            generate_trial=None,
+                            experiment_location=experiment_location,
+                            overwrite=Overwrite.overwrite)
     
     # loop over trials in folder and deserialize them into Trial objects
-    for trial_name in os.listdir(exp_dir):
+    for trial_name in os.listdir(experiment_folder):
         # skip the root directory (the experiment directory)
         if os.path.basename(trial_name) == expname:
             continue
         # skip the exp_params file in the folder
         if trial_name == 'exp_params.pickle':
             continue
-        trial = _load_trial(trial_name, expname, folder)
+        trial = _load_trial(trial_name, experiment_folder, lazy=lazy)
         experiment.trials.append(trial)
 
     return experiment
 
 
+# contains metadata about the trial,
+# so we can keep this and the model and data separate
+class TrialInfo:
+    def __init__(self, 
+                 name:str,
+                 description:str,
+                 dataset_params:dict,
+                 dataset_class,
+                 fit_params:dict,
+                 eval_params:dict):
+        self.name = name
+        self.description = description
+        self.dataset_params = dataset_params
+        self.dataset_class = dataset_class
+        self.fit_params = fit_params
+        self.eval_params = eval_params
+
+
 # contains data and model to fit and return log-likelihoods for
 class Trial:
-    def __init__(self, name, model, datadir, expnames, num_lags, fit_params, folder):
-        self.name = name
+    def __init__(self, 
+                 trial_info:TrialInfo,
+                 model:mod.Model,
+                 dataset):
+        self.trial_info = trial_info
         self.model = model
-        self.data = None # this is used for storage in memory, but it is not saved
-        self.fit_params = fit_params
-        self.folder = folder
-        self.trial_directory = os.path.join(self.folder, self.name)
-        self.data_loc = {
-            'datadir': datadir,
-            'expnames': expnames,
-            'num_lags': num_lags
-        }
+        self.dataset = dataset # this is used for storage in memory, but it is not saved
         self.LLs = []
     
-    # TODO: make fit and eval separate?
-    
-    def run(self):
-        if self.data is None: # be lazy
-            self.data = _load_data(**self.data_loc)
+    def run(self, experiment_folder):
+        trial_directory = os.path.join(experiment_folder, self.trial_info.name)
         
         # fit model
         assert self.model.NDN is not None
-        self.model.NDN.fit(self.data, **self.fit_params)
+        self.model.NDN.fit(self.dataset, **self.trial_info.fit_params)
         
         # eval model
-        self.LLs = self.model.NDN.eval_models(self.data[self.data.val_inds], 
-                                     null_adjusted=True)
+        self.LLs = self.model.NDN.eval_models(self.dataset[self.dataset.val_inds], 
+                                              **self.trial_info.eval_params)
 
         # make the trial folder to save the results to
-        os.mkdir(self.trial_directory)
+        os.mkdir(trial_directory)
 
         # save model
-        with open(os.path.join(self.trial_directory, 'model.pickle'), 'wb') as f:
+        with open(os.path.join(trial_directory, 'model.pickle'), 'wb') as f:
             pickle.dump(self.model, f)
             
-        # save params
-        with open(os.path.join(self.trial_directory, 'fit_params.pickle'), 'wb') as f:
-            pickle.dump(self.fit_params, f)
+        # save trial_info
+        with open(os.path.join(trial_directory, 'trial_info.pickle'), 'wb') as f:
+            pickle.dump(self.trial_info, f)
         
         # save LLs
-        with open(os.path.join(self.trial_directory, 'LLs.pickle'), 'wb') as f:
+        with open(os.path.join(trial_directory, 'LLs.pickle'), 'wb') as f:
             pickle.dump(list(self.LLs), f)
-        
-        # save data_loc
-        with open(os.path.join(self.trial_directory, 'data_loc.pickle'), 'wb') as f:
-            pickle.dump(self.data_loc, f)
-
-        # return LLs
-        return self.LLs
-
 
 
 # creates experiment for a single model architecture 
 # given the desired params and data to test as different trials
+class Overwrite(Enum):
+    none = 0
+    append = 1
+    overwrite = 2
+    
 class Experiment:
-    def __init__(self, name, model_template, datadir, list_of_expnames, num_lags, fit_params, folder='experiments', overwrite=False, load=False):
-        self.folder = os.path.join(folder, name)
-        if not load: # TODO: this is also hacky...
-            experiment_exists = os.path.exists(self.folder)
-            if overwrite:
-                if experiment_exists: # delete the previous experiment
-                    shutil.rmtree(self.folder, ignore_errors=True)
-                os.makedirs(self.folder)
-            else: # don't overwrite
-                assert not experiment_exists, "experiment \""+name+"\" already exists"
-                # make experiment folder
-                os.makedirs(self.folder)
+    def __init__(self, 
+                 name:str,
+                 description:str,
+                 generate_trial,
+                 experiment_location:str,
+                 overwrite:Overwrite=Overwrite.none):
+        self.name = name
+        self.description = description
+        self.experiment_folder = os.path.join(experiment_location, name)
+        self.generate_trial = generate_trial
+        self.overwrite = overwrite
         
-        if not isinstance(fit_params, list):
-            fit_params = [fit_params]
-            
-        # save the experiment params to the experiment folder
-        exp_dir = os.path.join(folder, name)
-        exp_params = {
-            'model_template': model_template,
-            'datadir': datadir,
-            'list_of_expnames': list_of_expnames,
-            'num_lags': num_lags, 
-            'fit_params': fit_params
-        }
-        with open(os.path.join(exp_dir, 'exp_params.pickle'), 'wb') as f:
-            pickle.dump(exp_params, f)
+        # if we don't specify how to overwrite
+        if self.overwrite == Overwrite.none:
+            assert not os.path.exists(self.experiment_folder), 'experiment_folder already exists and overwrite was not specified'
         
-        
-        # experiment model_template
-        self.model_template = model_template
-        # experiment params
-        self.datadir = datadir
-        self.list_of_expnames = list_of_expnames
-        self.num_lags = num_lags
-        self.fit_params = fit_params
-        
-        # experiment tials
+        # experiment trials
         self.trials = []
     
-    def run(self, verbose=False):
-        # make the trials given the params
-        self.trials = []
+    def run(self):
+        experiment_exists = os.path.exists(self.experiment_folder)
+        # make the dirs if it doesn't currently exist
+        if not experiment_exists: # make new directory if it doesn't exist
+            os.makedirs(self.experiment_folder) # make the new experiment
+        else: # overwrite the previous directory if asked to
+            if self.overwrite == Overwrite.overwrite:
+                shutil.rmtree(self.experiment_folder, ignore_errors=True)
+                os.makedirs(self.experiment_folder) # make the new experiment
+            # else: it will automatically append
         
-        # for each data
-        for di, expnames in enumerate(self.list_of_expnames):
-            print('Loading dataset for', expnames)
-            # create models based on the provided params
-            # load the data
-            data = _load_data(datadir=self.datadir,
-                              expnames=expnames,
-                              num_lags=self.num_lags)
-
-            # modify the model_template.output to match the data.NC before creating
-            print('Updating model output neurons to:', data.NC)
-            self.model_template.output.update_num_neurons(data.NC)
-            
-            models_to_try = mf.create_models(self.model_template)
-            print('Trying', len(models_to_try), 'models')
-            for mi, model in tqdm.tqdm(enumerate(models_to_try)):
-                for fi, fit_params in enumerate(self.fit_params):
-                    trial_name = 'm'+str(mi)+'d'+str(di)+'f'+str(fi)
-                    # TODO: pass in the correct params that trial needs now
-                    trial = Trial(trial_name, model, self.datadir,
-                                  expnames, self.num_lags,
-                                  fit_params, folder=self.folder)
-                    print('Fitting model', mi)
-                    trial.run()
-                    self.trials.append(trial)
-            
-        return self.trials
+        # save the experiment params to the experiment folder
+        exp_params = {
+            'name': self.name,
+            'description': self.description,
+            'experiment_folder': self.experiment_folder
+        }
+        with open(os.path.join(self.experiment_folder, 'exp_params.pickle'), 'wb') as f:
+            pickle.dump(exp_params, f)
+        
+        # for each Trial
+        # pass in the previous trials into the next one
+        for trial in self.generate_trial(self.trials):
+            trial.run(self.experiment_folder)
+            self.trials.append(trial)
     
     
     def plot_LLs(self, figsize=(15,5)):
