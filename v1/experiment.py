@@ -37,7 +37,7 @@ def _load_trial(trial_name, experiment_folder, lazy=True): # lazy=True to lazy l
     trial.LLs = LLs
     return trial
 
-def load(expname, experiment_location='experiments', lazy=False): # load experiment
+def load(expname, experiment_location, lazy=True): # load experiment
     experiment_folder = os.path.join(experiment_location, expname)
     with open(os.path.join(experiment_folder, 'exp_params.pickle'), 'rb') as f:
         exp_params = pickle.load(f)
@@ -88,9 +88,18 @@ class Trial:
                  dataset):
         self.trial_info = trial_info
         self.model = model
-        self.dataset = dataset # this is used for storage in memory, but it is not saved
+        self._dataset = dataset # this is used for storage in memory, but it is not saved
         self.LLs = []
-    
+
+    def get_dataset(self):
+        if self._dataset is None:
+            print('lazy loading dataset')
+            self._dataset = self.trial_info.dataset_class(**self.trial_info.dataset_params)
+        return self._dataset
+
+    # define property to allow lazy loading
+    dataset = property(get_dataset)
+
     def run(self, experiment_folder):
         trial_directory = os.path.join(experiment_folder, self.trial_info.name)
         
@@ -193,7 +202,7 @@ class Experiment:
         
     def __getitem__(self, trial_name):
         for trial in self.trials:
-            if trial.name == trial_name:
+            if trial.trial_info.name == trial_name:
                 return trial
         return None
     
