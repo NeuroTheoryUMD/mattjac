@@ -120,7 +120,7 @@ def generate_trial(prev_trials):
         yield trial
 
 
-def test_experiment():
+def test_experiment_basics():
     experiment = exp.Experiment(name='testexp',
                                 description='testexpdesc',
                                 generate_trial=generate_trial,
@@ -136,3 +136,7 @@ def test_experiment():
 
     # delete the created test_experiments folder
     shutil.rmtree('test_experiments', ignore_errors=True)
+
+
+def test_experiment_more_cases():
+    assert True == False

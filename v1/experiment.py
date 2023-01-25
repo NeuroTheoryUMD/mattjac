@@ -105,7 +105,7 @@ class Trial:
         
         # fit model
         assert self.model.NDN is not None
-        self.model.NDN.fit(self.dataset, **self.trial_info.fit_params)
+        self.model.NDN.fit(self.dataset, force_dict_training=True, **self.trial_info.fit_params)
         
         # eval model
         self.LLs = self.model.NDN.eval_models(self.dataset[self.dataset.val_inds], 

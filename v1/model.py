@@ -15,7 +15,7 @@ class Norm(Enum):
     max = 2
 
 class NL(Enum):
-    linear = None
+    linear = 'lin'
     relu = 'relu'
     elu = 'elu'
     square = 'square'
@@ -372,7 +372,13 @@ def _Network_to_FFnetwork(network):
             if not 'internal' in k:
                 sanitized_layer_params[k] = v
 
-        NDNLayers.append(layer_type.layer_dict(**sanitized_layer_params))
+        layer_dict = layer_type.layer_dict(**sanitized_layer_params)
+        # NDN has a bug where reg_vals don't get copied over from the constructor
+        # we need to do it separately from the constructor
+        if 'reg_vals' in sanitized_layer_params:
+            layer_dict['reg_vals'] = sanitized_layer_params['reg_vals']
+
+        NDNLayers.append(layer_dict)
 
     # if the network gets input from an Input (e.g. has input_covariate)
     if network.input_covariate is not None:
