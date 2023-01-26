@@ -5,7 +5,6 @@
 *.pickle
 lvs/lib/NDNT
 lvs/lib/NTdatasets
-lvs/checkpoints
 lvs/__pycache__
 lvs/lib/__pycache__
 lvs/.virtual_documents
@@ -15,6 +14,7 @@ v1/Mdata
 v1/NDNT
 v1/NTdatasets
 v1/checkpoints
+v1/archive/checkpoints
 v1/figs
 v1/nim
 v1/experiments

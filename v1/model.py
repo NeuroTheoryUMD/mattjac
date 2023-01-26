@@ -373,10 +373,14 @@ def _Network_to_FFnetwork(network):
                 sanitized_layer_params[k] = v
 
         layer_dict = layer_type.layer_dict(**sanitized_layer_params)
-        # NDN has a bug where reg_vals don't get copied over from the constructor
-        # we need to do it separately from the constructor
+        # NDN has a bug where certain parameters don't get copied over from the constructor
+        # we need to set them separately from the constructor
         if 'reg_vals' in sanitized_layer_params:
             layer_dict['reg_vals'] = sanitized_layer_params['reg_vals']
+        if 'output_norm' in sanitized_layer_params:
+            layer_dict['output_norm'] = sanitized_layer_params['output_norm']
+        if 'window' in sanitized_layer_params:
+            layer_dict['window'] = sanitized_layer_params['window']
 
         NDNLayers.append(layer_dict)
 

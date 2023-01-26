@@ -10,7 +10,7 @@ truncate.DEFAULT_MAX_CHARS = 9999
 
 def create_one_conv_network(verbose=False):
     netAlayer0 = m.ConvolutionalLayer(
-        norm_type=m.Norm.none,
+        norm_type=m.Norm.unit,
         NLtype=m.NL.relu,
         bias=False,
         initialize_center=True,

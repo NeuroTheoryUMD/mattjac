@@ -8,6 +8,8 @@ import seaborn as sns
 import model as mod
 from enum import Enum
 
+from NTdatasets.generic import GenericDataset
+
 
 # loading functions
 # unpickle the pickles and make a Trial object
@@ -100,15 +102,22 @@ class Trial:
     # define property to allow lazy loading
     dataset = property(get_dataset)
 
-    def run(self, experiment_folder):
+    def run(self, device, experiment_folder):
         trial_directory = os.path.join(experiment_folder, self.trial_info.name)
         
         # fit model
         assert self.model.NDN is not None
-        self.model.NDN.fit(self.dataset, force_dict_training=True, **self.trial_info.fit_params)
+
+        force_dict_training = False
+        # we need to force_dict_training if we are using lbfgs
+        if self.trial_info.fit_params['optimizer_type'] == 'lbfgs':
+            force_dict_training = True
+        train_ds = GenericDataset(self.dataset[self.dataset.train_inds], device=device)
+        val_ds = GenericDataset(self.dataset[self.dataset.val_inds], device=device)
+        self.model.NDN.fit(train_ds, force_dict_training=force_dict_training, **self.trial_info.fit_params)
         
         # eval model
-        self.LLs = self.model.NDN.eval_models(self.dataset[self.dataset.val_inds], 
+        self.LLs = self.model.NDN.eval_models(val_ds, 
                                               **self.trial_info.eval_params)
 
         # make the trial folder to save the results to
@@ -154,7 +163,7 @@ class Experiment:
         # experiment trials
         self.trials = []
     
-    def run(self):
+    def run(self, device):
         experiment_exists = os.path.exists(self.experiment_folder)
         # make the dirs if it doesn't currently exist
         if not experiment_exists: # make new directory if it doesn't exist
@@ -177,11 +186,16 @@ class Experiment:
         # for each Trial
         # pass in the previous trials into the next one
         for trial in self.generate_trial(self.trials):
-            trial.run(self.experiment_folder)
+            trial.run(device, self.experiment_folder)
             self.trials.append(trial)
     
     
-    def plot_LLs(self, figsize=(15,5)):
+    def plotLLs(self, trials=None, figsize=(15,5)):
+        # default to using all trials if not are specifically provided
+        trial_names_to_use = [trial.trial_info.name for trial in self.trials]
+        if trials is not None:
+            trial_names_to_use = trials
+        
         # get maximum num_neurons for the experiment
         max_num_neurons = 0
         for trial in self.trials:
@@ -191,8 +205,11 @@ class Experiment:
         df = pd.DataFrame({
             'Neuron': ['N'+str(n) for n in range(max_num_neurons)],
         })
-        for trial in self.trials:
-            df[trial.name] = np.concatenate((trial.LLs, np.zeros(max_num_neurons-len(trial.LLs), dtype=np.float32)))
+        
+        # get the trials and order them by the desired order
+        for trial_name in trial_names_to_use:
+            trial = self[trial_name]
+            df[trial_name] = np.concatenate((trial.LLs, np.zeros(max_num_neurons-len(trial.LLs), dtype=np.float32)))
         fig, ax1 = plt.subplots(figsize=figsize)
         tidy = df.melt(id_vars='Neuron').rename(columns=str.title)
         ax = sns.barplot(x='Neuron', y='Value', hue='Variable', data=tidy, ax=ax1)
