@@ -36,15 +36,6 @@ adam_pars = utils.create_optimizer_params(
     optimize_graph=False, weight_decay = 0.1)
 adam_pars['device'] = device
 
-lbfgs_pars = utils.create_optimizer_params(
-    optimizer_type='lbfgs',
-    tolerance_change=1e-10,
-    tolerance_grad=1e-10,
-    batch_size=2000,
-    history_size=100,
-    max_iter=2000)
-lbfgs_pars['device'] = device
-
 
 # create the Model
 hidden_layer = m.Layer(
@@ -93,7 +84,7 @@ def generate_trial(prev_trials):
 
         # track the specific parameters going into this trial
         trial_params = {
-            'expt': expt
+            'expt': '+'.join(expt)
         }
 
         trial_info = exp.TrialInfo(name='NIM_'+'+'.join(expt),

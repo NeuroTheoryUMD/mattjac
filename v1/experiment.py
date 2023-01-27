@@ -277,13 +277,12 @@ class Experiment:
     
     def plot_LLs(self, trials=None, figsize=(15,5)):
         # default to using all trials if not are specifically provided
-        trial_names_to_use = [trial.trial_info.name for trial in self.trials]
-        if trials is not None:
-            trial_names_to_use = trials
+        if trials is None:
+            trials = [trial for trial in self.trials['trial']]
         
         # get maximum num_neurons for the experiment
         max_num_neurons = 0
-        for trial in self.trials:
+        for trial in trials:
             if trial.model.output.num_neurons > max_num_neurons:
                 max_num_neurons = trial.model.output.num_neurons
         
@@ -292,12 +291,8 @@ class Experiment:
         })
         
         # get the trials and order them by the desired order
-        for trial_name in trial_names_to_use:
-            trial = self._get_trial_by_name(trial_name)
-            if trial is None:
-                print('WARNING: '+trial_name+' is not in the experiment')
-                continue # skip over this trial
-            df[trial_name] = np.concatenate((trial.LLs, np.zeros(max_num_neurons-len(trial.LLs), dtype=np.float32)))
+        for trial in trials:
+            df[trial.name] = np.concatenate((trial.LLs, np.zeros(max_num_neurons-len(trial.LLs), dtype=np.float32)))
         fig, ax1 = plt.subplots(figsize=figsize)
         tidy = df.melt(id_vars='Neuron').rename(columns=str.title)
         ax = sns.barplot(x='Neuron', y='Value', hue='Variable', data=tidy, ax=ax1)
@@ -307,57 +302,52 @@ class Experiment:
         
     def plot_losses(self, trials=None, figsize=(15,5)):
         # default to using all trials if not are specifically provided
-        trial_names_to_use = [trial.trial_info.name for trial in self.trials]
-        if trials is not None:
-            trial_names_to_use = trials
+        if trials is None:
+            trials = [trial for trial in self.trials['trial']]
+        
         plt.figure(figsize=figsize)
-        for trial_name in trial_names_to_use:
-            trial = self._get_trial_by_name(trial_name)
-            if trial is None:
-                print('WARNING: '+trial_name+' is not in the experiment')
-                continue # skip over this trial
-            plt.plot(trial.losses, label=trial.trial_info.name)
+        for trial in trials:
+            plt.plot(trial.losses, label=trial.name)
         plt.legend()
         plt.show()
         
-    def trials_by_param(self, union=False, **kwargs):
+    def trials_where(self, union=False, **kwargs):
         assert len(self._trials) > 0, 'trials is empty'
         cond = '&' # default to intersection of params
         if union: # but, support union of params as well
             cond = '|'
         
-        # use double quotes for query and single for strings inside the query
-        if len(kwargs) > 1 and cond is not None:
-            query = cond.join(["{}=='{}'".format(k, v) for k, v in kwargs.items()])
-        elif len(kwargs) == 1: # only 1 kwarg provided
-            k,v = tuple(kwargs.items())[0]
-            query = "{}=='{}'".format(k,v)
-        else:
-            return None
-        print(query)
-        trials = self.trials.query(query)
+        i = 0
+        query = ""
+        for k,v in kwargs.items():
+            if i > 0: query += cond
+            # use double quotes for query and single for strings inside the query
+            if isinstance(v,str):
+                query += k+"=='"+v+"'"
+            else:
+                query += k+"=="+str(v)
+            i += 1
+
+        # query and return the matching trial objects
+        trials = [trial for trial in self.trials.query(query)['trial']]
         return trials
     
     def _set_trials(self, trials):
         # get all trial_params keys
         dfs = []
         for trial in trials:
-            df = pd.DataFrame(trial.trial_info.trial_params)
+            # the value going into a dataframe must be a list
+            df = pd.DataFrame({k:[v] for k,v in trial.trial_info.trial_params.items()})
             df['name'] = trial.name
             df['trial'] = trial
             dfs.append(df)
         
         # concatenate the individual DFs
         self._trials = pd.concat(dfs)
+        self._trials = self.trials.sort_values(by='name') # sort alphabetically by name
     
     def _get_trials(self):
         return self._trials
     
     # property to encapsulate getting and setting trials
     trials = property(fget=_get_trials, fset=_set_trials)
-    
-    def __getitem__(self, trial_name):
-        return self._get_trial_by_name(trial_name)
-    
-    def __len__(self):
-        return len(self.trials)
