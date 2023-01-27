@@ -44,7 +44,6 @@ def _load_trial(trial_name, experiment_folder, lazy=True): # lazy=True to lazy l
     trial.LLs = LLs
     trial.trial_directory = trial_directory
     trial.ckpts_directory = os.path.join(trial_directory, 'checkpoints')
-    print(trial.ckpts_directory)
     return trial
 
 def load(expname, experiment_location, lazy=True): # load experiment
@@ -286,8 +285,10 @@ class Experiment:
         
         # get the trials and order them by the desired order
         for trial_name in trial_names_to_use:
-            assert trial_name in self, trial_name+' not in experiment'
-            trial = self[trial_name]
+            trial = self._get_trial_by_name(trial_name)
+            if trial is None:
+                print('WARNING: '+trial_name+' is not in the experiment')
+                continue # skip over this trial
             df[trial_name] = np.concatenate((trial.LLs, np.zeros(max_num_neurons-len(trial.LLs), dtype=np.float32)))
         fig, ax1 = plt.subplots(figsize=figsize)
         tidy = df.melt(id_vars='Neuron').rename(columns=str.title)
@@ -296,11 +297,14 @@ class Experiment:
         plt.legend(title='Model')
         sns.despine(fig)
         
-    def __getitem__(self, trial_name):
+    def _get_trial_by_name(self, trial_name):
         for trial in self.trials:
             if trial.trial_info.name == trial_name:
                 return trial
         return None
+    
+    def __getitem__(self, trial_name):
+        return self._get_trial_by_name(trial_name)
     
     def __len__(self):
         return len(self.trials)

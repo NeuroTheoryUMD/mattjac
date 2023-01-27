@@ -25,10 +25,10 @@ dataset = MultiDataset(
 # load sample dataset to construct the model appropriately
 datadir = './Mdata/'
 num_lags = 10
-expts = [['expt04']]
-         #['expt04', 'expt05'],
-         #['expt04', 'expt05', 'expt06'],
-         #['expt04', 'expt05', 'expt06', 'expt07']]
+expts = [['expt04'],
+         ['expt04', 'expt05'],
+         ['expt04', 'expt05', 'expt06'],
+         ['expt04', 'expt05', 'expt06', 'expt07']]
 
 adam_pars = utils.create_optimizer_params(
     optimizer_type='AdamW', batch_size=2000, num_workers=0,
@@ -106,7 +106,7 @@ def generate_trial(prev_trials):
 
 
 # run the experiment
-experiment = exp.Experiment(name='exp_NIM_test',
+experiment = exp.Experiment(name='exp_NIM',
                             description='Nonlinear Input Model',
                             generate_trial=generate_trial,
                             experiment_location='experiments',
