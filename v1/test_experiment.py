@@ -106,6 +106,8 @@ def generate_trial(prev_trials):
 
         trial_info = exp.TrialInfo(name='test'+str(trial_idx),
                                    description='testdesc'+str(trial_idx),
+                                   trial_params={'test':'test',
+                                                 'test2': 1},
                                    dataset_params=dataset_params,
                                    dataset_class=MultiDataset,
                                    fit_params=adam_pars,

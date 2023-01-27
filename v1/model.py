@@ -60,18 +60,19 @@ class NetworkType(Enum):
 # defines superset of all possible params
 # converts params that are provided to the value required by the NDN
 def _convert_params(internal_layer_type,
-                    filter_dims:list = None,
-                    window:str = None,
-                    padding:str = None,
-                    num_filters:int = None,
-                    num_inh:int = None,
-                    bias:bool = None,
-                    norm_type:Norm = None,
-                    NLtype:NL = None,
-                    initialize_center:bool = None,
-                    reg_vals:dict = None,
-                    output_norm:bool = None,
-                    pos_constraint:bool = None):
+                    filter_dims=None,
+                    window=None,
+                    padding=None,
+                    num_filters=None,
+                    num_inh=None,
+                    bias=None,
+                    norm_type=None,
+                    NLtype=None,
+                    initialize_center=None,
+                    reg_vals=None,
+                    output_norm=None,
+                    pos_constraint=None,
+                    temporal_tent_spacing=None):
     params = {
         'internal_layer_type': internal_layer_type
     }
@@ -88,31 +89,34 @@ def _convert_params(internal_layer_type,
     if reg_vals is not None: params['reg_vals'] = reg_vals
     if output_norm is not None: params['output_norm'] = output_norm
     if pos_constraint is not None: params['pos_constraint'] = pos_constraint
+    if temporal_tent_spacing is not None: params['temporal_tent_spacing'] = temporal_tent_spacing
     
     return params
     
 
 class Layer:
     def __init__(self,
-                 num_filters:int = None,
-                 num_inh:int = None,
-                 bias:bool = None,
-                 norm_type:Norm = None,
-                 NLtype:NL = None,
-                 initialize_center:bool = None,
-                 reg_vals:dict = None,
-                 output_norm:bool = None,
-                 pos_constraint:bool = None):
-        self.params = _convert_params(internal_layer_type = NDNLayer,
-                                      num_filters = num_filters,
+                 num_filters:int=None,
+                 num_inh:int=None,
+                 bias:bool=None,
+                 norm_type:Norm=None,
+                 NLtype:NL=None,
+                 initialize_center:bool=None,
+                 reg_vals:dict=None,
+                 output_norm:bool=None,
+                 pos_constraint:bool=None,
+                 temporal_tent_spacing:int=None):
+        self.params = _convert_params(internal_layer_type=NDNLayer,
+                                      num_filters=num_filters,
                                       num_inh=num_inh,
-                                      bias = bias,
-                                      norm_type = norm_type,
-                                      NLtype = NLtype,
-                                      initialize_center = initialize_center,
-                                      reg_vals = reg_vals,
-                                      output_norm = output_norm,
-                                      pos_constraint = pos_constraint)
+                                      bias=bias,
+                                      norm_type=norm_type,
+                                      NLtype=NLtype,
+                                      initialize_center=initialize_center,
+                                      reg_vals=reg_vals,
+                                      output_norm=output_norm,
+                                      pos_constraint=pos_constraint,
+                                      temporal_tent_spacing=temporal_tent_spacing)
         self.network = None # to be able to point to the network we are a part of
         self.index = None # to be able to point to the layer we are a part of in the NDN
         # TODO: be able to set this layer's weights as the 
@@ -163,25 +167,71 @@ class ConvolutionalLayer:
                  num_filters=None,
                  num_inh=0,
                  bias=False,
-                 norm_type = Norm.none,
+                 norm_type=Norm.none,
                  NLtype=NL.linear,
                  initialize_center=False,
                  reg_vals=None,
                  output_norm=None,
-                 pos_constraint=False):
-        self.params = _convert_params(internal_layer_type = ConvLayer,
-                                      filter_dims = filter_dims,
-                                      window = window,
-                                      padding = padding,
-                                      num_filters = num_filters,
+                 pos_constraint=False,
+                 temporal_tent_spacing:int=None):
+        self.params = _convert_params(internal_layer_type=ConvLayer,
+                                      filter_dims=filter_dims,
+                                      window=window,
+                                      padding=padding,
+                                      num_filters=num_filters,
                                       num_inh=num_inh,
-                                      bias = bias,
-                                      norm_type = norm_type,
-                                      NLtype = NLtype,
-                                      initialize_center = initialize_center,
-                                      reg_vals = reg_vals,
-                                      output_norm = output_norm,
-                                      pos_constraint = pos_constraint)
+                                      bias=bias,
+                                      norm_type=norm_type,
+                                      NLtype=NLtype,
+                                      initialize_center=initialize_center,
+                                      reg_vals=reg_vals,
+                                      output_norm=output_norm,
+                                      pos_constraint=pos_constraint,
+                                      temporal_tent_spacing=temporal_tent_spacing)
+        self.network = None # to be able to point to the network we are a part of
+        self.index = None # to be able to point to the layer we are a part of in the NDN
+
+    # make this layer like another layer
+    def like(self, layer):
+        # copy the other layer params into this layer's params
+        self.params = copy.deepcopy(layer.params)
+        return self
+
+    def _get_weights(self):
+        return self.network.model.NDN.networks[self.network.index].layers[self.index].get_weights()
+
+    # define property to make it easier to remember
+    weights = property(_get_weights)
+
+class TemporalConvolutionalLayer:
+    def __init__(self,
+                 filter_dims=None,
+                 window=None,
+                 padding='valid', # default in the NDN
+                 num_filters=None,
+                 num_inh=0,
+                 bias=False,
+                 norm_type=Norm.none,
+                 NLtype=NL.linear,
+                 initialize_center=False,
+                 reg_vals=None,
+                 output_norm=None,
+                 pos_constraint=False,
+                 temporal_tent_spacing:int=None):
+        self.params = _convert_params(internal_layer_type=TconvLayer,
+                                      filter_dims=filter_dims,
+                                      window=window,
+                                      padding=padding,
+                                      num_filters=num_filters,
+                                      num_inh=num_inh,
+                                      bias=bias,
+                                      norm_type=norm_type,
+                                      NLtype=NLtype,
+                                      initialize_center=initialize_center,
+                                      reg_vals=reg_vals,
+                                      output_norm=output_norm,
+                                      pos_constraint=pos_constraint,
+                                      temporal_tent_spacing=temporal_tent_spacing)
         self.network = None # to be able to point to the network we are a part of
         self.index = None # to be able to point to the layer we are a part of in the NDN
 

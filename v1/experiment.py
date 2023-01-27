@@ -15,6 +15,22 @@ from tensorboard.backend.event_processing.event_accumulator import EventAccumula
 from NTdatasets.generic import GenericDataset
 
 
+# enums
+# creates experiment for a single model architecture 
+# given the desired params and data to test as different trials
+class Overwrite(Enum):
+    none = 0
+    append = 1
+    overwrite = 2
+    
+class Loss(Enum):
+    loss = 'Loss/Loss'
+    train = 'Loss/Train'
+    reg = 'Loss/Reg'
+    train_epoch = 'Loss/Train (Epoch)'
+    val_epoch = 'Loss/Validation (Epoch)'
+
+
 # loading functions
 # unpickle the pickles and make a Trial object
 def _load_trial(trial_name, experiment_folder, lazy=True): # lazy=True to lazy load the dataset
@@ -70,7 +86,11 @@ def load(expname, experiment_location, lazy=True): # load experiment
         if trial_name.startswith('.'):
             continue
         # finally, load the trial folder
-        trial = _load_trial(trial_name, experiment_folder, lazy=lazy)
+        try:
+            trial = _load_trial(trial_name, experiment_folder, lazy=lazy)
+        except:
+            print("Error loading trial", trial_name, "...skipping")
+            continue
         trials.append(trial)
     experiment.trials = trials # make sure to use the setter
 
@@ -122,7 +142,7 @@ class Trial:
             self._dataset = self.trial_info.dataset_class(**self.trial_info.dataset_params)
         return self._dataset
 
-    def _get_losses(self, loss_type):
+    def losses(self, loss_type):
         # lazy load losses as well
         if self._losses is None:
             print('lazy loading losses')
@@ -146,37 +166,19 @@ class Trial:
             event_acc.Reload()
             # Show all tags in the log file -- print(event_acc.Tags())
             # get wall clock, number of steps and value for a scalar 'Accuracy'
-            loss_w_times, loss_step_nums, loss_losses = zip(*event_acc.Scalars('Loss/Loss'))
-            train_w_times, train_step_nums, train_losses = zip(*event_acc.Scalars('Loss/Train'))
-            reg_w_times, reg_step_nums, reg_losses= zip(*event_acc.Scalars('Loss/Reg'))
-            train_epoch_w_times, train_epoch_step_nums, train_epoch_losses = zip(*event_acc.Scalars('Loss/Train (Epoch)'))
-            val_epoch_times, val_epoch_step_nums, val_epoch_losses = zip(*event_acc.Scalars('Loss/Validation (Epoch)'))
+            loss_w_times, loss_step_nums, loss_losses = zip(*event_acc.Scalars(Loss.loss.value))
+            train_w_times, train_step_nums, train_losses = zip(*event_acc.Scalars(Loss.train.value))
+            reg_w_times, reg_step_nums, reg_losses= zip(*event_acc.Scalars(Loss.reg.value))
+            train_epoch_w_times, train_epoch_step_nums, train_epoch_losses = zip(*event_acc.Scalars(Loss.train_epoch.value))
+            val_epoch_times, val_epoch_step_nums, val_epoch_losses = zip(*event_acc.Scalars(Loss.val_epoch.value))
             self._losses = {
-                'Loss/Loss': loss_losses,
-                'Loss/Train': train_losses,
-                'Loss/Reg': reg_losses,
-                'Loss/Train (Epoch)': train_epoch_losses,
-                'Loss/Validation (Epoch)': val_epoch_losses
+                Loss.loss: loss_losses,
+                Loss.train: train_losses,
+                Loss.reg: reg_losses,
+                Loss.train_epoch: train_epoch_losses,
+                Loss.val_epoch: val_epoch_losses
             }
         return self._losses[loss_type]
-        
-    def _get_loss_losses(self):
-        return self._get_losses('Loss/Loss')
-    def _get_train_losses(self):
-        return self._get_losses('Loss/Train')
-    def _get_reg_losses(self):
-        return self._get_losses('Loss/Reg')
-    def _get_train_epoch_losses(self):
-        return self._get_losses('Loss/Train (Epoch)')
-    def _get_validation_epoch_losses(self):
-        return self._get_losses('Loss/Validation (Epoch')
-    
-    # define loss properties
-    losses = property(_get_loss_losses)
-    train_losses = property(_get_train_losses)
-    reg_losses = property(_get_reg_losses)
-    train_epoch_losses = property(_get_train_epoch_losses)
-    val_epoch_losses = property(_get_validation_epoch_losses)
     
     # define property to allow lazy loading
     dataset = property(_get_dataset)
@@ -219,13 +221,6 @@ class Trial:
         with open(os.path.join(self.trial_directory, 'LLs.pickle'), 'wb') as f:
             pickle.dump(list(self.LLs), f)
 
-
-# creates experiment for a single model architecture 
-# given the desired params and data to test as different trials
-class Overwrite(Enum):
-    none = 0
-    append = 1
-    overwrite = 2
     
 class Experiment:
     def __init__(self, 
@@ -233,7 +228,7 @@ class Experiment:
                  description:str,
                  generate_trial,
                  experiment_location:str,
-                 overwrite:Overwrite=Overwrite.none):
+                 overwrite:Overwrite=Overwrite.append):
         self.name = name
         self.description = description
         self.experiment_folder = os.path.join(experiment_location, name)
@@ -279,6 +274,10 @@ class Experiment:
         # default to using all trials if not are specifically provided
         if trials is None:
             trials = [trial for trial in self.trials['trial']]
+            
+        if len(trials) == 0:
+            print("No trials found to plot")
+            return
         
         # get maximum num_neurons for the experiment
         max_num_neurons = 0
@@ -300,14 +299,18 @@ class Experiment:
         plt.legend(title='Model')
         sns.despine(fig)
         
-    def plot_losses(self, trials=None, figsize=(15,5)):
+    def plot_losses(self, loss_type=Loss.val_epoch, trials=None, figsize=(15,5)):
         # default to using all trials if not are specifically provided
         if trials is None:
             trials = [trial for trial in self.trials['trial']]
+
+        if len(trials) == 0:
+            print("No trials found to plot")
+            return
         
         plt.figure(figsize=figsize)
         for trial in trials:
-            plt.plot(trial.losses, label=trial.name)
+            plt.plot(trial.losses(loss_type), label=trial.name)
         plt.legend()
         plt.show()
         
