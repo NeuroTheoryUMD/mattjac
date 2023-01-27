@@ -126,8 +126,11 @@ class Layer:
         # convert the dictionary of lists into a list of lists of tuples
         return [[(k,v) for v in vs] for k,vs in self.params.items()]
 
-    def get_weights(self):
+    def _get_weights(self):
         return self.network.model.NDN.networks[self.network.index].layers[self.index].get_weights()
+
+    # define property to make it easier to remember
+    weights = property(_get_weights)
 
 
 # layer subclasses
@@ -148,8 +151,11 @@ class PassthroughLayer:
         # convert the dictionary of lists into a list of lists of tuples
         return [[(k,v) for v in vs] for k,vs in self.params.items()]
 
-    def get_weights(self):
+    def _get_weights(self):
         return self.network.model.NDN.networks[self.network.index].layers[self.index].get_weights()
+
+    # define property to make it easier to remember
+    weights = property(_get_weights)
 
 
 class ConvolutionalLayer:
@@ -188,8 +194,11 @@ class ConvolutionalLayer:
         self.params = copy.deepcopy(layer.params)
         return self
 
-    def get_weights(self):
+    def _get_weights(self):
         return self.network.model.NDN.networks[self.network.index].layers[self.index].get_weights()
+
+    # define property to make it easier to remember
+    weights = property(_get_weights)
 
 
 # utility "networks"

@@ -1,4 +1,5 @@
 import os
+import glob
 import shutil
 import pickle
 import numpy as np
@@ -8,6 +9,9 @@ import seaborn as sns
 import model as mod
 from enum import Enum
 
+# to be able to load the Tensorboard events to see the loss
+from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+# NTdataset
 from NTdatasets.generic import GenericDataset
 
 
@@ -36,7 +40,11 @@ def _load_trial(trial_name, experiment_folder, lazy=True): # lazy=True to lazy l
     trial = Trial(trial_info=trial_info,
                   model=model,
                   dataset=dataset)
+    # set the results properties so we have access to them
     trial.LLs = LLs
+    trial.trial_directory = trial_directory
+    trial.ckpts_directory = os.path.join(trial_directory, 'checkpoints')
+    print(trial.ckpts_directory)
     return trial
 
 def load(expname, experiment_location, lazy=True): # load experiment
@@ -58,6 +66,10 @@ def load(expname, experiment_location, lazy=True): # load experiment
         # skip the exp_params file in the folder
         if trial_name == 'exp_params.pickle':
             continue
+        # skip hidden folders
+        if trial_name.startswith('.'):
+            continue
+        # finally, load the trial folder
         trial = _load_trial(trial_name, experiment_folder, lazy=lazy)
         experiment.trials.append(trial)
 
@@ -90,20 +102,82 @@ class Trial:
                  dataset):
         self.trial_info = trial_info
         self.model = model
-        self._dataset = dataset # this is used for storage in memory, but it is not saved
+        self._dataset = dataset # this is used in memory, but it is not saved with the pickle
+        
+        # these are initially null until the Trial is trained or loaded
+        self.trial_directory = None
+        self.ckpts_directory  = None
         self.LLs = []
+        self._losses = None # lazy loaded
 
-    def get_dataset(self):
+    def _get_dataset(self):
         if self._dataset is None:
             print('lazy loading dataset')
             self._dataset = self.trial_info.dataset_class(**self.trial_info.dataset_params)
         return self._dataset
 
+    def _get_losses(self, loss_type):
+        # lazy load losses as well
+        if self._losses is None:
+            print('lazy loading losses')
+            # look for a file prefixed with "events.out" to get the filename
+            # 'experiments/exp_NIM_test/NIM_expt04/checkpoints/
+            # M011_NN/version1/events.out.tfevents.1674778321.beast.155528.0'
+            # we need to ignore the versioning scheme in the checkpoints directory
+            # walk through the hierarchy until we get to the events file
+            subfolders = []
+            for root,dirs,files in os.walk(self.ckpts_directory, topdown=True):
+                if len(dirs) > 0:
+                    subfolders.append(dirs[0])
+            assert not len(subfolders) < 1, 'Trial ['+self.trial_info.name+'] no subfolders found in the checkpoints directory'
+            assert not len(subfolders) > 2, 'Trial ['+self.trial_info.name+'] more than 2 subfolders found in the checkpoints directory'
+            events_directory = os.path.join(self.ckpts_directory, *subfolders)
+            event_filenames = glob.glob(os.path.join(events_directory, 'events.out.*'))
+            assert not len(event_filenames) < 1, 'Trial ['+self.trial_info.name+'] no event file found in the checkpoints directory'
+            assert not len(event_filenames) > 1, 'Trial ['+self.trial_info.name+'] more than 1 event file found in the checkpoints directory'
+            event_filename = event_filenames[0]
+            event_acc = EventAccumulator(event_filename)
+            event_acc.Reload()
+            # Show all tags in the log file -- print(event_acc.Tags())
+            # get wall clock, number of steps and value for a scalar 'Accuracy'
+            loss_w_times, loss_step_nums, loss_losses = zip(*event_acc.Scalars('Loss/Loss'))
+            train_w_times, train_step_nums, train_losses = zip(*event_acc.Scalars('Loss/Train'))
+            reg_w_times, reg_step_nums, reg_losses= zip(*event_acc.Scalars('Loss/Reg'))
+            train_epoch_w_times, train_epoch_step_nums, train_epoch_losses = zip(*event_acc.Scalars('Loss/Train (Epoch)'))
+            val_epoch_times, val_epoch_step_nums, val_epoch_losses = zip(*event_acc.Scalars('Loss/Validation (Epoch)'))
+            self._losses = {
+                'Loss/Loss': loss_losses,
+                'Loss/Train': train_losses,
+                'Loss/Reg': reg_losses,
+                'Loss/Train (Epoch)': train_epoch_losses,
+                'Loss/Validation (Epoch)': val_epoch_losses
+            }
+        return self._losses[loss_type]
+        
+    def _get_loss_losses(self):
+        return self._get_losses('Loss/Loss')
+    def _get_train_losses(self):
+        return self._get_losses('Loss/Train')
+    def _get_reg_losses(self):
+        return self._get_losses('Loss/Reg')
+    def _get_train_epoch_losses(self):
+        return self._get_losses('Loss/Train (Epoch)')
+    def _get_validation_epoch_losses(self):
+        return self._get_losses('Loss/Validation (Epoch')
+    
+    # define loss properties
+    losses = property(_get_loss_losses)
+    train_losses = property(_get_train_losses)
+    reg_losses = property(_get_reg_losses)
+    train_epoch_losses = property(_get_train_epoch_losses)
+    val_epoch_losses = property(_get_validation_epoch_losses)
+    
     # define property to allow lazy loading
-    dataset = property(get_dataset)
+    dataset = property(_get_dataset)
 
     def run(self, device, experiment_folder):
-        trial_directory = os.path.join(experiment_folder, self.trial_info.name)
+        self.trial_directory = os.path.join(experiment_folder, self.trial_info.name)
+        self.ckpts_directory  = os.path.join(self.trial_directory, 'checkpoints')
         
         # fit model
         assert self.model.NDN is not None
@@ -112,27 +186,31 @@ class Trial:
         # we need to force_dict_training if we are using lbfgs
         if self.trial_info.fit_params['optimizer_type'] == 'lbfgs':
             force_dict_training = True
+        assert self.dataset.train_inds is not None, 'Trial ['+self.trial_info.name+']dataset is missing train_inds'
+        assert self.dataset.val_inds is not None, 'Trial ['+self.trial_info.name+']dataset is missing val_inds'
+        
         train_ds = GenericDataset(self.dataset[self.dataset.train_inds], device=device)
         val_ds = GenericDataset(self.dataset[self.dataset.val_inds], device=device)
-        self.model.NDN.fit(train_ds, force_dict_training=force_dict_training, **self.trial_info.fit_params)
+        self.model.NDN.fit_dl(train_ds, val_ds, save_dir=self.ckpts_directory, force_dict_training=force_dict_training, **self.trial_info.fit_params)
         
         # eval model
         self.LLs = self.model.NDN.eval_models(val_ds, 
                                               **self.trial_info.eval_params)
 
-        # make the trial folder to save the results to
-        os.mkdir(trial_directory)
+        # creating the checkpoints automatically creates the trial_directory,
+        # but, let's just confirm here
+        assert os.path.exists(self.trial_directory), 'Trial ['+self.trial_info.name+'] trial_directory is missing, training with checkpoints should have created it'
 
         # save model
-        with open(os.path.join(trial_directory, 'model.pickle'), 'wb') as f:
+        with open(os.path.join(self.trial_directory, 'model.pickle'), 'wb') as f:
             pickle.dump(self.model, f)
             
         # save trial_info
-        with open(os.path.join(trial_directory, 'trial_info.pickle'), 'wb') as f:
+        with open(os.path.join(self.trial_directory, 'trial_info.pickle'), 'wb') as f:
             pickle.dump(self.trial_info, f)
         
         # save LLs
-        with open(os.path.join(trial_directory, 'LLs.pickle'), 'wb') as f:
+        with open(os.path.join(self.trial_directory, 'LLs.pickle'), 'wb') as f:
             pickle.dump(list(self.LLs), f)
 
 
@@ -208,6 +286,7 @@ class Experiment:
         
         # get the trials and order them by the desired order
         for trial_name in trial_names_to_use:
+            assert trial_name in self, trial_name+' not in experiment'
             trial = self[trial_name]
             df[trial_name] = np.concatenate((trial.LLs, np.zeros(max_num_neurons-len(trial.LLs), dtype=np.float32)))
         fig, ax1 = plt.subplots(figsize=figsize)
