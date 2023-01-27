@@ -1,5 +1,6 @@
 import torch
 import shutil # for filesystem manipulation
+import torch
 
 # NDN tools
 import NDNT.utils as utils # some other utilities
@@ -11,7 +12,6 @@ import experiment as exp
 import model as m
 
 device = torch.device("cuda:1")
-dtype = torch.float32
 
 # load sample dataset to construct the model appropriately
 datadir = './Mdata/'
@@ -60,8 +60,7 @@ readout_layer0 = m.Layer(
     norm_type=m.Norm.none,
     NLtype=m.NL.softplus,
     bias=True,
-    reg_vals=[
-        {'glocalx': 0.001}],
+    reg_vals={'glocalx': 0.001},
     pos_constraint=True
 )
 
@@ -126,7 +125,7 @@ def test_experiment_basics():
                                 generate_trial=generate_trial,
                                 experiment_location='test_experiments',
                                 overwrite=exp.Overwrite.overwrite)
-    experiment.run()
+    experiment.run(device)
     
     assert len(experiment.trials) == 2
     

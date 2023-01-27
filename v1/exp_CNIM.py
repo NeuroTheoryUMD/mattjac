@@ -93,9 +93,16 @@ def generate_trial(prev_trials):
             # modify the model_template.output to match the data.NC before creating
             print('Updating model output neurons to:', expt_dataset.NC)
             model.update_num_neurons(expt_dataset.NC)
+            
+            # track the specific parameters going into this trial
+            trial_params = {
+                'num_filters': num_filters,
+                'expt': expt
+            }
     
             trial_info = exp.TrialInfo(name='CNIM_NF'+str(num_filters)+'_'+'+'.join(expt),
                                        description='CNIM train on the expt dataset with num_filters=NF in the first layer',
+                                       trial_params=trial_params,
                                        dataset_params=dataset_params,
                                        dataset_class=MultiDataset,
                                        fit_params=adam_pars,

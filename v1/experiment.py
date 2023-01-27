@@ -58,6 +58,7 @@ def load(expname, experiment_location, lazy=True): # load experiment
                             overwrite=Overwrite.overwrite)
     
     # loop over trials in folder and deserialize them into Trial objects
+    trials = []
     for trial_name in os.listdir(experiment_folder):
         # skip the root directory (the experiment directory)
         if os.path.basename(trial_name) == expname:
@@ -70,7 +71,8 @@ def load(expname, experiment_location, lazy=True): # load experiment
             continue
         # finally, load the trial folder
         trial = _load_trial(trial_name, experiment_folder, lazy=lazy)
-        experiment.trials.append(trial)
+        trials.append(trial)
+    experiment.trials = trials # make sure to use the setter
 
     return experiment
 
@@ -81,12 +83,14 @@ class TrialInfo:
     def __init__(self, 
                  name:str,
                  description:str,
+                 trial_params:dict,
                  dataset_params:dict,
                  dataset_class,
                  fit_params:dict,
                  eval_params:dict):
         self.name = name
         self.description = description
+        self.trial_params = trial_params
         self.dataset_params = dataset_params
         self.dataset_class = dataset_class
         self.fit_params = fit_params
@@ -99,6 +103,9 @@ class Trial:
                  trial_info:TrialInfo,
                  model:mod.Model,
                  dataset):
+        self.name = trial_info.name
+        self.description = trial_info.description
+        self.trial_params = trial_info.trial_params
         self.trial_info = trial_info
         self.model = model
         self._dataset = dataset # this is used in memory, but it is not saved with the pickle
@@ -238,7 +245,7 @@ class Experiment:
             assert not os.path.exists(self.experiment_folder), 'experiment_folder already exists and overwrite was not specified'
         
         # experiment trials
-        self.trials = []
+        self._trials = []
     
     def run(self, device):
         experiment_exists = os.path.exists(self.experiment_folder)
@@ -262,12 +269,13 @@ class Experiment:
         
         # for each Trial
         # pass in the previous trials into the next one
+        trials = []
         for trial in self.generate_trial(self.trials):
             trial.run(device, self.experiment_folder)
-            self.trials.append(trial)
+            trials.append(trial)
+        self.trials = trials # make sure to call the setter this way
     
-    
-    def plotLLs(self, trials=None, figsize=(15,5)):
+    def plot_LLs(self, trials=None, figsize=(15,5)):
         # default to using all trials if not are specifically provided
         trial_names_to_use = [trial.trial_info.name for trial in self.trials]
         if trials is not None:
@@ -297,18 +305,59 @@ class Experiment:
         plt.legend(title='Model')
         sns.despine(fig)
         
-    def _get_trial_by_name(self, trial_name):
-        for trial in self.trials:
-            if trial.trial_info.name == trial_name:
-                return trial
-        return None
+    def plot_losses(self, trials=None, figsize=(15,5)):
+        # default to using all trials if not are specifically provided
+        trial_names_to_use = [trial.trial_info.name for trial in self.trials]
+        if trials is not None:
+            trial_names_to_use = trials
+        plt.figure(figsize=figsize)
+        for trial_name in trial_names_to_use:
+            trial = self._get_trial_by_name(trial_name)
+            if trial is None:
+                print('WARNING: '+trial_name+' is not in the experiment')
+                continue # skip over this trial
+            plt.plot(trial.losses, label=trial.trial_info.name)
+        plt.legend()
+        plt.show()
+        
+    def trials_by_param(self, union=False, **kwargs):
+        assert len(self._trials) > 0, 'trials is empty'
+        cond = '&' # default to intersection of params
+        if union: # but, support union of params as well
+            cond = '|'
+        
+        # use double quotes for query and single for strings inside the query
+        if len(kwargs) > 1 and cond is not None:
+            query = cond.join(["{}=='{}'".format(k, v) for k, v in kwargs.items()])
+        elif len(kwargs) == 1: # only 1 kwarg provided
+            k,v = tuple(kwargs.items())[0]
+            query = "{}=='{}'".format(k,v)
+        else:
+            return None
+        print(query)
+        trials = self.trials.query(query)
+        return trials
+    
+    def _set_trials(self, trials):
+        # get all trial_params keys
+        dfs = []
+        for trial in trials:
+            df = pd.DataFrame(trial.trial_info.trial_params)
+            df['name'] = trial.name
+            df['trial'] = trial
+            dfs.append(df)
+        
+        # concatenate the individual DFs
+        self._trials = pd.concat(dfs)
+    
+    def _get_trials(self):
+        return self._trials
+    
+    # property to encapsulate getting and setting trials
+    trials = property(fget=_get_trials, fset=_set_trials)
     
     def __getitem__(self, trial_name):
         return self._get_trial_by_name(trial_name)
     
     def __len__(self):
         return len(self.trials)
-
-
-    # TODO: print a table (DataFrame) of comparing LLs over parameter combinations tried per dataset
-    

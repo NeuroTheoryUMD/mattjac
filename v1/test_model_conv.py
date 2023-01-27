@@ -80,7 +80,7 @@ def test_one_conv_network_creation():
     assert netA.layers[0].network is netA
     assert netA.layers[0].index == 0
     assert netA.layers[0].params['internal_layer_type'] is l.ConvLayer
-    assert netA.layers[0].params['norm_type'] == 0
+    assert netA.layers[0].params['norm_type'] == 1
     assert netA.layers[0].params['NLtype'] == 'relu'
     assert netA.layers[0].params['bias'] == False
     assert netA.layers[0].params['initialize_center'] == True
@@ -121,7 +121,7 @@ def test_one_conv_network_creation():
     # test_correct_NDNLayers_created
     # netA.layer0
     assert isinstance(ffnetA.layers[0], l.ConvLayer) # check that we made the right class type
-    assert ffnetA.layers[0].norm_type == 0
+    assert ffnetA.layers[0].norm_type == 1
     assert isinstance(ffnetA.layers[0].NL, nn.ReLU)
     #TODO: assert isinstance(ffnetA.layers[0].bias, nn.Parameter) # just check it is the right kind of thing
     #TODO: assert ffnetA.layers[0].initialize_center == True

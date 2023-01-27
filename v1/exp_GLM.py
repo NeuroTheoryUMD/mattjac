@@ -93,8 +93,14 @@ def generate_trial(prev_trials):
         print('Updating model output neurons to:', expt_dataset.NC)
         model.update_num_neurons(expt_dataset.NC)
 
+        # track the specific parameters going into this trial
+        trial_params = {
+            'expt': expt
+        }
+        
         trial_info = exp.TrialInfo(name='GLM_'+'+'.join(expt),
                                    description='GLM trained on different datasets',
+                                   trial_params=trial_params,
                                    dataset_params=dataset_params,
                                    dataset_class=MultiDataset,
                                    fit_params=lbfgs_pars,

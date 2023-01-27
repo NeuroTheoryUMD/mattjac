@@ -45,6 +45,11 @@ class NetworkType(Enum):
     mult = 'mult'
     readout = 'readout'
     scaffold = 'scaffold'
+    
+# TODO: make output_norm an enum
+# TODO: make window an enum
+# TODO: make reg_vals enums as well
+
 
 
 # layer
@@ -122,10 +127,6 @@ class Layer:
         self.params = copy.deepcopy(layer.params)
         return self
     
-    def build(self):
-        # convert the dictionary of lists into a list of lists of tuples
-        return [[(k,v) for v in vs] for k,vs in self.params.items()]
-
     def _get_weights(self):
         return self.network.model.NDN.networks[self.network.index].layers[self.index].get_weights()
 
@@ -146,10 +147,6 @@ class PassthroughLayer:
         
         self.network = None # to be able to point to the network we are a part of
         self.index = 0 # to be able to point to the layer we are a part of in the NDN
-
-    def build(self):
-        # convert the dictionary of lists into a list of lists of tuples
-        return [[(k,v) for v in vs] for k,vs in self.params.items()]
 
     def _get_weights(self):
         return self.network.model.NDN.networks[self.network.index].layers[self.index].get_weights()
@@ -348,10 +345,6 @@ class Network:
         for li, layer in enumerate(self.layers):
             layer.index = li
             layer.network = self # point the layer back to the network it is a part of
-    
-    def add_layer(self, layer):
-        self.layers.append(layer)
-        layer.network = self
         
     def to(self, network):
         network.inputs.append(self)
@@ -431,7 +424,7 @@ class Model:
         # network.index --> network map
         self.netidx_to_model = {}
         # network.name --> network map
-        self.netname_to_model = {}
+        self.networks_by_name = {}
         
         for network in self.traverse():
             # create groups
@@ -448,8 +441,8 @@ class Model:
         self.networks.reverse()
         for idx, network in enumerate(self.networks):
             self.netidx_to_model[idx] = network
-            assert network.name not in self.netname_to_model, "networks must have unique names"
-            self.netname_to_model[network.name] = network
+            assert network.name not in self.networks_by_name, "networks must have unique names"
+            self.networks_by_name[network.name] = network
             network.index = idx # set the reversed depth-first index
 
         # create the NDN now
@@ -459,13 +452,6 @@ class Model:
         self.output.update_num_neurons(num_neurons)
         # update the NDN as well
         self.NDN = _Model_to_NDN(self, verbose)
-
-    def get_network_names(self):
-        return self.netname_to_model.keys()
-    
-    def get_network(self, network_name):
-        assert network_name in self.netname_to_model, "model does not have a network with that name"
-        return self.netname_to_model[network_name]
     
     def __str__(self):
         return 'Model len(inputs)'+str(len(self.inputs))+\
