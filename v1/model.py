@@ -118,7 +118,7 @@ class Layer:
                                       pos_constraint=pos_constraint,
                                       temporal_tent_spacing=temporal_tent_spacing)
         self.network = None # to be able to point to the network we are a part of
-        self.index = None # to be able to point to the layer we are a part of in the NDN
+        self.index = None # to be able to point to the layer we are a part of in the Network
         # TODO: be able to set this layer's weights as the 
         #       weights of a previous layer that maybe we can access by name
         #       from the Model API
