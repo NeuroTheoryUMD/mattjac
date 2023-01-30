@@ -11,6 +11,7 @@ class Results:
         self._outputs = [] # layer outputs per network
         self.outputs_shape = ()
         self.inps = None # input (e.g. stim)
+        self.inps_shape = () # shape of the input (e.g. stim_dims)
         self.robs = None # actual robs
         self.pred = None # predicted robs
         self.model = model
@@ -26,12 +27,19 @@ class Results:
 
     outputs = property(_get_outputs, _set_outputs)
 
-def predict(inps, model, robs, device=torch.device("cuda:1"), verbose=False):
-    # TODO: handle data.dfs (valid data frames, very important)
-    # TODO: maybe take one that takes in a dataset,
-    #       and one that takes in raw inps
-    #(model({'stim': data.stim[test_inds]})  * data.dfs[test_inds]).detach().numpy()
-
+def predict(model, inps=None, robs=None, dataset=None, verbose=False):
+    assert (inps is not None and robs is not None) or (dataset is not None),\
+           'either (inps and robs) or dataset is required'
+    if dataset is not None:
+        # handle data.dfs (valid data frames, very important)
+        # element-wise multiply the stim by the valid frames
+        # to keep only the valid datapoints
+        robs = dataset.robs * dataset.dfs
+        inps = dataset.stim # TODO: should we remove any frame where a single neuron
+                            #       is invalid?
+    
+    # TODO: don't hardcode 'stim' down below,
+    #       handle multiple covariates
 
     # TODO: for scaffold networks,
     #       if the previous network is defined as a scaffold,
@@ -65,9 +73,7 @@ def predict(inps, model, robs, device=torch.device("cuda:1"), verbose=False):
             prev_output = z_torch
 
     # add predicted robs for time
-    dataset = GenericDataset({'stim': inps}, device=device)
-    pred = []
-    #pred = model.NDN(dataset).detach().numpy()
+    pred = model.NDN({'stim': inps}).detach().numpy()
 
     # all_outputs[frame:int][network_name:str][layer:int] = output:ndarray
     results = Results(model)

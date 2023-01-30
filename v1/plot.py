@@ -134,14 +134,21 @@ def plot_stim(stim,
                     aspect='auto', cmap='binary')
 
 
-def plot_robs(robs, smooth=None, figsize=(5,10)):
+def plot_robs(robs, pred=None, smooth=None, figsize=(5,10)):
     robs_to_plot = robs
+    pred_to_plot = None
+    if pred is not None:
+        pred_to_plot = pred
     if smooth is not None:
         # moving average of the robs
         robs_to_plot = np.convolve(robs, np.ones(smooth)/smooth)
-        
+        if pred is not None:
+            pred_to_plot = np.convolve(pred, np.ones(smooth)/smooth)
     fig = plt.figure(figsize=figsize)
-    plt.plot(robs_to_plot)
+    plt.plot(robs_to_plot, label='robs')
+    if pred is not None:
+        plt.plot(pred_to_plot, label='pred')
+        plt.legend()
     plt.show()
     
     
