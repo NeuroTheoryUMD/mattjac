@@ -44,15 +44,19 @@ adam_pars = utils.create_optimizer_params(
 adam_pars['device'] = device
 
 
+grid_num_filters = [8, 12, 16,  8, 12, 16]
+grid_num_lag     = [3, 5,  7,   3, 5,  7]
+grid_num_inh     = [0, 0,  0,   4, 6,  8]
+
 # create the Model
 def generate_trial(prev_trials):
     trial_idx = 0
     for expt in expts:
-        for num_filters in [4,6,8]: # try a few filter amounts
+        for num_filters, num_lag, num_inh in zip(grid_num_filters, grid_num_lag, grid_num_inh):
             convolutional_layer = m.TemporalConvolutionalLayer(
-                num_filters=num_filters, 
-                #num_inh=num_filters//2, # TODO: these don't work with the Tconv for dimension mismatch reasons
-                filter_dims=[1,21,1,3], # [C, w, h, t]
+                num_filters=num_filters,
+                num_inh=num_inh,
+                filter_dims=[1,21,1,num_lag], # [C, w, h, t]
                 window='hamming',
                 padding='spatial',
                 NLtype=m.NL.relu,
@@ -98,11 +102,13 @@ def generate_trial(prev_trials):
             # track the specific parameters going into this trial
             trial_params = {
                 'num_filters': num_filters,
+                'num_lag': num_lag,
+                'num_inh': num_inh,
                 'expt': '+'.join(expt)
             }
     
-            trial_info = exp.TrialInfo(name='TCNIM_NF'+str(num_filters)+'_'+'+'.join(expt),
-                                       description='TCNIM train on the expt dataset with num_filters=NF in the first layer',
+            trial_info = exp.TrialInfo(name='TCNIM_'+str(trial_idx),
+                                       description='TCNIM train on the expt dataset with different num_filters, num_inh, and num_lag',
                                        trial_params=trial_params,
                                        dataset_params=dataset_params,
                                        dataset_class=MultiDataset,
@@ -117,8 +123,9 @@ def generate_trial(prev_trials):
 
 
 # run the experiment
-experiment = exp.Experiment(name='exp_TCNIM',
+experiment = exp.Experiment(name='exp_TCNIM_inh',
                             description='Temporal Convolutional Nonlinear Input Model',
                             generate_trial=generate_trial,
-                            experiment_location='experiments')
+                            experiment_location='experiments',
+                            overwrite=exp.Overwrite.overwrite)
 experiment.run(device)

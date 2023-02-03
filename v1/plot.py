@@ -29,14 +29,34 @@ def plot_layer_weights(layer,
     if fig is None:
         fig = plt.figure(figsize=figsize)
 
-    # if it is 2D, make it 3D
+    print(layer.shape, end=' --> ')
+
+    # if it is 2D, make it 4D
     if len(layer.shape) == 2:
-        # insert it in the middle, so it matches the format of the 3D stuff
-        layer = np.expand_dims(layer, 1)
+        # insert it at the beginning, so it matches the format of the 3D stuff
+        layer = np.expand_dims(layer, axis=0)
+        prev_weights = 1
+        cur_weights = 1
+
+    # if it is 3D, make it 4D
+    elif len(layer.shape) == 3:
+        layer = np.swapaxes(layer, 0, -1)
+        prev_weights = 1
+        cur_weights = layer.shape[0]
+
+    # if it is 4D, swap the axes
+    elif len(layer.shape) == 4:
+        layer = np.swapaxes(layer, 0, 2)
+        box_height, box_width, prev_weights, cur_weights = tuple(layer.shape)
+        layer = layer.reshape(box_height, box_width, prev_weights*cur_weights)
+        layer = np.swapaxes(layer, 0, -1)
+        layer = np.swapaxes(layer, -2, -1)
+
+    print(layer.shape)
 
     # make the layer easier to iterate through and plot
+    # (36, 10, 1, 1) --> (1, 1, 10, 36)
     # (36, 10, 8) --> (8, 10, 36) = 8 rows of images: 36 width x 10 height
-    layer = np.swapaxes(layer, 0, 2)
     num_boxes = layer.shape[0]
 
     num_rows = 1
@@ -45,10 +65,10 @@ def plot_layer_weights(layer,
         num_rows = num_boxes // max_cols + 1
 
     grid = plt.GridSpec(num_rows, num_cols, wspace=wspace, hspace=hspace)
-
     box_idx = 0
+    prev_weight = 0
+    cur_weight = 0
     for i in range(0, num_rows, 1):
-        # increment the global row to keep track through the layers
         for j in range(0, num_cols):
             # stop plotting if there are no more subunits in the layer
             if box_idx == num_boxes:
@@ -62,19 +82,24 @@ def plot_layer_weights(layer,
             imax = np.max(box.flatten())
             box_ax.set_axis_off() # remove axis
             box_ax.imshow(box, vmin=imin, vmax=imax, aspect='auto', cmap=cmap)
+            box_ax.set_title('C'+str(cur_weight)+',P'+str(prev_weight), pad=10) # add padding to leave room for the title
 
             box_idx += 1 # move onto the next box
+            prev_weight += 1
+            if prev_weight == prev_weights:
+                prev_weight = 0
+                cur_weight += 1
             
 
 def plot_network_weights(network, 
-                         figsize=(10,10),
+                         figsize=(5,10),
                          max_cols=8,
-                         wspace=0.5,
-                         hspace=0.3,
+                         wspace=1,
+                         hspace=5,
                          cmap='gray'):
     # make the figure and axes
     fig, axs = plt.subplots(nrows=len(network.layers), ncols=1,
-                            constrained_layout=True,
+                            #constrained_layout=True,
                             figsize=figsize)
     
     # plot the network name as the title
@@ -94,12 +119,12 @@ def plot_network_weights(network,
         
         current_row += 1
 
-        
+
 def plot_model_weights(model,
                        figsize=(10,10),
                        max_cols=8,
                        wspace=0.5,
-                       hspace=0.3,
+                       hspace=0.8,
                        cmap='gray'):
     for network in model.networks:
         if not isinstance(network, Input) and not isinstance(network, Output):
