@@ -202,8 +202,7 @@ class Trial:
         self.model.NDN.fit_dl(train_ds, val_ds, save_dir=self.ckpts_directory, force_dict_training=force_dict_training, **self.trial_info.fit_params)
         
         # eval model
-        self.LLs = self.model.NDN.eval_models(val_ds, 
-                                              **self.trial_info.eval_params)
+        self.LLs = self.model.NDN.eval_models(val_ds, **self.trial_info.eval_params)
 
         # creating the checkpoints automatically creates the trial_directory,
         # but, let's just confirm here
@@ -265,7 +264,7 @@ class Experiment:
         # for each Trial
         # pass in the previous trials into the next one
         trials = []
-        for trial in self.generate_trial(self.trials):
+        for trial in self.generate_trial(trials):
             trial.run(device, self.experiment_folder)
             trials.append(trial)
         self.trials = trials # make sure to call the setter this way
@@ -343,6 +342,7 @@ class Experiment:
             df = pd.DataFrame({k:[v] for k,v in trial.trial_info.trial_params.items()})
             df['name'] = trial.name
             df['trial'] = trial
+            df['mean_LLs'] = np.mean(trial.LLs)
             dfs.append(df)
         
         # concatenate the individual DFs

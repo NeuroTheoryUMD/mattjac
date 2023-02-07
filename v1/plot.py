@@ -18,6 +18,8 @@ def lightmode():
 def darkmode():
     # use dark background for all our plots, because it is better
     plt.style.use('dark_background')
+def graymode():
+    plt.style.use('bmh') # Bayesian methods for hackers
 
 def plot_layer_weights(layer,
                        fig=None,
