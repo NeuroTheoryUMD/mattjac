@@ -1,3 +1,7 @@
+import sys
+# not best practice, but makes it easier to import from subdirectory
+sys.path.insert(0, '../')
+
 import torch
 import shutil # for filesystem manipulation
 import torch
@@ -14,18 +18,13 @@ import model as m
 device = torch.device("cuda:1")
 
 # load sample dataset to construct the model appropriately
-datadir = './Mdata/'
+datadir = '../Mdata/'
 num_lags = 10
-expts = ['expt04']
+expts = [['expt04'], ['expt05']] # this needs to be a list of lists to iterate over them in the loop below
+# TODO: clean this up
 dataset = MultiDataset(
-    datadir=datadir, filenames=expts, include_MUs=False,
+    datadir=datadir, filenames=expts[0], include_MUs=False,
     time_embed=True, num_lags=num_lags )
-
-# for each data
-# load sample dataset to construct the model appropriately
-datadir = './Mdata/'
-num_lags = 10
-expts = [['expt04'], ['expt05']]
 
 adam_pars = utils.create_optimizer_params(
     optimizer_type='AdamW', batch_size=2000, num_workers=0,

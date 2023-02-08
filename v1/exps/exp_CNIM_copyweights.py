@@ -1,3 +1,6 @@
+import sys
+sys.path.insert(0, '../lib')
+
 import torch
 import sys
 import copy
@@ -15,20 +18,17 @@ device = torch.device("cuda:1")
 dtype = torch.float32
 
 # load sample dataset to construct the model appropriately
-datadir = './Mdata/'
+datadir = '../Mdata/'
 num_lags = 10
-expts = ['expt04']
 dataset = MultiDataset(
     datadir=datadir,
-    filenames=expts,
+    filenames=['expt04'],
     include_MUs=False,
     time_embed=True,
     num_lags=num_lags)
 
 # for each data
 # load sample dataset to construct the model appropriately
-datadir = './Mdata/'
-num_lags = 10
 expts = [['expt04'],
          ['expt04', 'expt05'],
          ['expt04', 'expt05', 'expt06'],

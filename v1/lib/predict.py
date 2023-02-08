@@ -1,3 +1,6 @@
+import sys
+sys.path.insert(0, '../') # to have access to NTdatasets
+
 import pandas as pd
 import torch
 import numpy as np

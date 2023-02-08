@@ -1,3 +1,6 @@
+import sys
+sys.path.insert(0, '../') # to have access to NTdatasets
+
 import os
 import glob
 import shutil
@@ -33,7 +36,7 @@ class Loss(Enum):
 
 # loading functions
 # unpickle the pickles and make a Trial object
-def _load_trial(trial_name, experiment_folder, lazy=True): # lazy=True to lazy load the dataset
+def _load_trial(trial_name, experiment_folder, datadir=None, lazy=True): # lazy=True to lazy load the dataset
     trial_directory = os.path.join(experiment_folder, trial_name)
     
     # load model
@@ -47,7 +50,11 @@ def _load_trial(trial_name, experiment_folder, lazy=True): # lazy=True to lazy l
     # load trial_info
     with open(os.path.join(trial_directory, 'trial_info.pickle'), 'rb') as f:
         trial_info = pickle.load(f)
-        
+    
+    # set the datadir in the trial_info.dataset_params
+    if datadir is not None:
+        trial_info.dataset_params['datadir'] = datadir
+    
     # load the dataset
     dataset = None
     if not lazy:
@@ -62,7 +69,7 @@ def _load_trial(trial_name, experiment_folder, lazy=True): # lazy=True to lazy l
     trial.ckpts_directory = os.path.join(trial_directory, 'checkpoints')
     return trial
 
-def load(expname, experiment_location, lazy=True): # load experiment
+def load(expname, experiment_location, datadir=None, lazy=True): # load experiment    
     experiment_folder = os.path.join(experiment_location, expname)
     with open(os.path.join(experiment_folder, 'exp_params.pickle'), 'rb') as f:
         exp_params = pickle.load(f)
@@ -71,6 +78,7 @@ def load(expname, experiment_location, lazy=True): # load experiment
                             description=exp_params['description'],
                             generate_trial=None,
                             experiment_location=experiment_location,
+                            datadir=datadir,
                             overwrite=Overwrite.overwrite)
     
     # loop over trials in folder and deserialize them into Trial objects
@@ -87,7 +95,10 @@ def load(expname, experiment_location, lazy=True): # load experiment
             continue
         # finally, load the trial folder
         try:
-            trial = _load_trial(trial_name, experiment_folder, lazy=lazy)
+            trial = _load_trial(trial_name=trial_name, 
+                                experiment_folder=experiment_folder, 
+                                datadir=datadir, 
+                                lazy=lazy)
         except:
             print("Error loading trial", trial_name, "...skipping")
             continue
@@ -227,10 +238,12 @@ class Experiment:
                  description:str,
                  generate_trial,
                  experiment_location:str,
+                 datadir:str=None,
                  overwrite:Overwrite=Overwrite.append):
         self.name = name
         self.description = description
         self.experiment_folder = os.path.join(experiment_location, name)
+        self.datadir = datadir
         self.generate_trial = generate_trial
         self.overwrite = overwrite
         
@@ -265,8 +278,10 @@ class Experiment:
         # pass in the previous trials into the next one
         trials = []
         for trial in self.generate_trial(trials):
+            assert trial is not None, 'generate_trial() callback must return a valid trial'
             trial.run(device, self.experiment_folder)
             trials.append(trial)
+        assert len(trials) > 0, 'no trials were run'
         self.trials = trials # make sure to call the setter this way
     
     def plot_LLs(self, trials=None, figsize=(15,5)):

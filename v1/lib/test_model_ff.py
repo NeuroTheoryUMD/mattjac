@@ -1,3 +1,7 @@
+import sys
+# not best practice, but makes it easier to import from subdirectory
+sys.path.insert(0, '../')
+
 import model as m
 import NDNT.modules.layers as l
 from torch import nn # for other activations
