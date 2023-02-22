@@ -86,7 +86,7 @@ def plot_layer_weights(layer,
             imin = np.min(box.flatten())
             imax = np.max(box.flatten())
             box_ax.set_axis_off() # remove axis
-            box_ax.imshow(box, vmin=imin, vmax=imax, aspect='auto', cmap=cmap)
+            box_ax.imshow(box, vmin=imin, vmax=imax, interpolation='none', aspect='auto', cmap=cmap)
             box_ax.set_title('C'+str(cur_weight)+',P'+str(prev_weight), pad=10) # add padding to leave room for the title
 
             box_idx += 1 # move onto the next box
@@ -113,8 +113,12 @@ def plot_network_weights(network,
     # plot the layers and outputs
     current_row = 1
     for l in range(0, len(network.layers)): # go through each layer
-        # get the subplotspec specific to this subplot
-        subplotspec = axs[l].get_subplotspec()
+        # https://stackoverflow.com/questions/52273546/matplotlib-typeerror-axessubplot-object-is-not-subscriptable
+        if len(network.layers) > 1: # plt.subplots only returns a list of axs if nrows > 1
+            # get the subplotspec specific to this subplot
+            subplotspec = axs[l].get_subplotspec()
+        else:
+            subplotspec = axs.get_subplotspec()
         subfig = fig.add_subfigure(subplotspec)
         subfig.suptitle('Layer ' + str(l))
 
@@ -160,7 +164,7 @@ def plot_stim(stim,
     input_ax.set_axis_off() # remove axis
     # flip the input upside down
     input_ax.imshow(np.flipud(inp), 
-                    vmin=imin, vmax=imax,
+                    vmin=imin, vmax=imax, interpolation='none',
                     aspect='auto', cmap='binary')
 
 
@@ -185,6 +189,22 @@ def plot_robs(robs, pred=None, smooth=None, figsize=(5,10)):
 
 ########################################################################    
 
+
+def simulate(model, results, timestep, context=100):
+    # TODO: just iterate over the model inside the render_network function
+    layers = []
+    for n in range(len(model.NDN.networks)):
+        for l in range(len(model.NDN.networks[n].layers)):
+            layer = model.NDN.networks[n].layers[l].get_weights()
+            layers.append(layer)
+    
+    # get the inps and robs at the given timestep
+    # predict with this inps
+    res = predict.predict(model, inps=inps, robs=robs)
+    
+    # render the network at that timestep
+    # show some context around the robs for niceness
+    return render_network(inps, stim_dims, res.outputs, layers)
 
 
 def render_network(inp, stim_dims,
@@ -226,7 +246,7 @@ def render_network(inp, stim_dims,
     input_ax.set_axis_off() # remove axis
     # flip the input upside down
     input_ax.imshow(np.flipud(inp), vmin=imin, vmax=imax,
-                    aspect='auto', cmap='binary')
+                    interpolation='none', aspect='auto', cmap='binary')
 
     # plot the layers and outputs
     current_row = 1
@@ -271,14 +291,18 @@ def render_network(inp, stim_dims,
                 imin = np.min(box.flatten())
                 imax = np.max(box.flatten())
                 box_ax.set_axis_off() # remove axis
-                box_ax.imshow(box, vmin=imin, vmax=imax, aspect='auto', cmap=cmap)
+                box_ax.imshow(box, vmin=imin, vmax=imax, interpolation='none', aspect='auto', cmap=cmap)
 
                 output_ax = subfig.add_subplot(grid[i+1,j])
                 # to index the last axis for arrays with any number of axes
                 imin = np.min(box.flatten())
                 imax = np.max(box.flatten())
                 output_ax.set_axis_off() # remove axis
-                output_ax.imshow(output, vmin=imin, vmax=imax, aspect='auto', cmap=cmap)
+                output_ax.imshow(output, vmin=imin, vmax=imax, interpolation='none', aspect='auto', cmap=cmap)
+                
+                # TODO: add in robs and pred at the end
+                
+                
 
                 # draw line between input and output
                 # centerTopX = (box.shape[1]-1) // 2

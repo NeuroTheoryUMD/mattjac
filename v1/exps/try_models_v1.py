@@ -5,6 +5,7 @@ sys.path.insert(0, '../')
 import torch
 import copy
 import itertools as it
+import numpy as np
 
 # NDN tools
 import NDNT.utils as utils # some other utilities
@@ -28,13 +29,6 @@ dataset = MultiDataset(
     time_embed=True,
     num_lags=num_lags)
 
-# for each data
-# load sample dataset to construct the model appropriately
-expts = [['expt04'],
-         ['expt04', 'expt05'],
-         ['expt04', 'expt05', 'expt06'],
-         ['expt04', 'expt05', 'expt06', 'expt07']]
-
 adam_pars = utils.create_optimizer_params(
     optimizer_type='AdamW',
     batch_size=2000,
@@ -47,11 +41,11 @@ adam_pars['device'] = device
 
 
 
-def cnim(num_filters, num_inh, reg_vals, kerneL_height):
+def cnim(num_filters, num_inh, reg_vals, kernel_width, kernel_height):
     convolutional_layer = m.ConvolutionalLayer(
         num_filters=num_filters,
         num_inh=num_inh,
-        filter_dims=21,
+        filter_dims=kernel_width,
         window='hamming',
         NLtype=m.NL.relu,
         norm_type=m.Norm.unit,
@@ -74,11 +68,11 @@ def cnim(num_filters, num_inh, reg_vals, kerneL_height):
     return m.Model(output_11, verbose=True)
 
 
-def cnim_scaffold(num_filters, num_inh, reg_vals, kerneL_height):
+def cnim_scaffold(num_filterses, num_inh_percent, reg_vals, kernel_widths, kernel_heights):
     conv_layer0 = m.ConvolutionalLayer(
-        num_filters=num_filters,
-        num_inh=num_inh,
-        filter_dims=21,
+        num_filters=num_filterses[0],
+        num_inh=int(num_filterses[0]*num_inh_percent),
+        filter_dims=kernel_widths[0],
         window='hamming',
         NLtype=m.NL.relu,
         norm_type=m.Norm.unit,
@@ -87,13 +81,13 @@ def cnim_scaffold(num_filters, num_inh, reg_vals, kerneL_height):
         output_norm='batch',
         reg_vals=reg_vals)
     conv_layer1 = m.ConvolutionalLayer().like(conv_layer0)
-    conv_layer1.params['num_filters'] = num_filters
-    conv_layer1.params['num_inh'] = num_filters//2
-    conv_layer1.params['filter_dims'] = 9
+    conv_layer1.params['num_filters'] = num_filterses[1]
+    conv_layer1.params['num_inh'] = int(num_filterses[1]*num_inh_percent),
+    conv_layer1.params['filter_dims'] = kernel_widths[1]
     conv_layer2 = m.ConvolutionalLayer().like(conv_layer0)
-    conv_layer2.params['num_filters'] = 4
-    conv_layer2.params['num_inh'] = 2
-    conv_layer2.params['filter_dims'] = 9
+    conv_layer2.params['num_filters'] = num_filterses[2]
+    conv_layer2.params['num_inh'] = int(num_filterses[2]*num_inh_percent),
+    conv_layer2.params['filter_dims'] = kernel_widths[2]
 
     readout_layer0 = m.Layer(
         pos_constraint=True, # because we have inhibitory subunits on the first layer
@@ -111,6 +105,7 @@ def cnim_scaffold(num_filters, num_inh, reg_vals, kerneL_height):
                              name='scaffold')
     readout_net = m.Network(layers=[readout_layer0],
                             name='readout')
+    # this is set as a starting point, but updated on each iteration
     output_11 = m.Output(num_neurons=11)
 
     inp_stim.to(scaffold_net)
@@ -119,11 +114,11 @@ def cnim_scaffold(num_filters, num_inh, reg_vals, kerneL_height):
     return m.Model(output_11, verbose=True)
 
 
-def tcnim(num_filters, num_inh, reg_vals, kerneL_height):
+def tcnim(num_filters, num_inh, reg_vals, kernel_width, kernel_height):
     tconv_layer = m.TemporalConvolutionalLayer(
         num_filters=num_filters,
         num_inh=num_inh,
-        filter_dims=[1,21,1,kerneL_height], # [C, w, h, t]
+        filter_dims=[1,kernel_width,1,kernel_height], # [C, w, h, t]
         window='hamming',
         padding='spatial',
         NLtype=m.NL.relu,
@@ -147,11 +142,11 @@ def tcnim(num_filters, num_inh, reg_vals, kerneL_height):
     return m.Model(output_11, verbose=True)
 
 
-def tcnim_scaffold(num_filters, num_inh, reg_vals, kerneL_height):
+def tcnim_scaffold(num_filters, num_inh, reg_vals, kernel_width, kernel_height):
     tconv_layer0 = m.TemporalConvolutionalLayer(
         num_filters=num_filters,
         num_inh=num_inh,
-        filter_dims=[1,21,1,kerneL_height], # [C, w, h, t]
+        filter_dims=[1,kernel_width,1,kernel_height], # [C, w, h, t]
         window='hamming',
         padding='spatial',
         NLtype=m.NL.relu,
@@ -194,25 +189,30 @@ def tcnim_scaffold(num_filters, num_inh, reg_vals, kerneL_height):
 
 
 # parameters to iterate over
-#copy_weights = [True, False]
-num_filterses = [16]
-kernel_heights = [5, 7]
-reg_valses = [{'d2xt': 0.01, 'l1':0.0001, 'center':0.01, 'bcs':{'d2xt':1}},
-            {'d2xt': 0.05, 'l1':0.0001, 'center':0.01, 'bcs':{'d2xt':1}},
-            {'d2xt': 0.10, 'l1':0.0001, 'center':0.01, 'bcs':{'d2xt':1}},
-            {'d2xt': 0.01, 'l1':0.0005, 'center':0.01, 'bcs':{'d2xt':1}},
-            {'d2xt': 0.01, 'l1':0.0010, 'center':0.01, 'bcs':{'d2xt':1}},
-            {'d2xt': 0.01, 'l1':0.0001, 'center':0.05, 'bcs':{'d2xt':1}},
-            {'d2xt': 0.01, 'l1':0.0001, 'center':0.10, 'bcs':{'d2xt':1}}]
-modelfuncs = [cnim, cnim_scaffold, tcnim, tcnim_scaffold]
-modelstrs  = ['cnim', 'cnim_scaffold', 'tcnim', 'tcnim_scaffold']
+# TODO: also initialize the models a few times to compare across initializations
+experiment_name = 'cnim_scaffold_3_layer'
+experiment_desc = 'Compare scaffold across experiments, num_filters, and copying weights'
+expts = [['expt04', 'expt05'],
+         ['expt04', 'expt05', 'expt06'],
+         ['expt04', 'expt05', 'expt06', 'expt07']]
+copy_weights = [True, False]
+num_filterses = [16, 20, 24]
+#kernel_heights = [5]
+reg_vals = {'d2xt': 0.01, 'l1': 0.0001, 'center': 0.01, 'bcs': {'d2xt': 1}}
+#modelfuncs = [cnim, cnim_scaffold, tcnim, tcnim_scaffold]
+#modelstrs  = ['cnim', 'cnim_scaffold', 'tcnim', 'tcnim_scaffold']
+modelfuncs = [cnim_scaffold]
+modelstrs  = ['cnim_scaffold']
+
 
 # grid search through the desired parameters 
-grid_search = it.product(num_filterses, kernel_heights, reg_valses, modelfuncs, modelstrs)
+grid_search = it.product(num_filterses, modelstrs)
 
 def generate_trial(prev_trials):
     trial_idx = 0
-    for num_filters, kernel_height, reg_vals, modelfunc, modelstr in grid_search:
+    for num_filters, kernel_height, reg_vals, modelstr in grid_search:
+        modelfunc = modelfuncs[modelstrs.index(modelstr)] # get the func at the index of the modelstr
+        
         print('==========================================')
         print(num_filters, kernel_height, reg_vals, modelstr)
         
@@ -281,9 +281,11 @@ def generate_trial(prev_trials):
                 'num_filters': num_filters,
                 'expt': '+'.join(expt),
                 'kernel_height': kernel_height, 
-                'reg_vals': reg_vals,
                 'modelstr': modelstr
             }
+            # add individual reg_vals to the trial_params
+            for k,v in reg_vals.items():
+                trial_params[k] = v
         
             trial_info = exp.TrialInfo(name=modelstr+str(trial_idx),
                                        description=modelstr+' with specified parameters',
@@ -301,8 +303,8 @@ def generate_trial(prev_trials):
 
 
 # run the experiment
-experiment = exp.Experiment(name='exp_multiple_models2',
-                            description='Trying multiple models',
+experiment = exp.Experiment(name=experiment_name,
+                            description=experiment_desc,
                             generate_trial=generate_trial,
                             experiment_location='../experiments',
                             overwrite=exp.Overwrite.overwrite)
