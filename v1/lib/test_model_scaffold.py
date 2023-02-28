@@ -130,3 +130,15 @@ def test_scaffold_network_creation():
     assert ffnet_readout.layers[0].num_filters == 11 # equal to the num_neurons
     #TODO: assert ffnet_readout.layers[0].reg_vals == {'l1':0.1, 'localx':0.001, 'bcs':{'d2xt':1}}
     assert ffnet_readout.layers[0].input_dims == [20,36,1,1]
+
+
+def test_copy_weights():
+    assert True == False
+    
+
+def test_freeze_weights():
+    assert True == False
+    
+    
+def test_reinitialize_weights():
+    assert True == False

@@ -473,12 +473,12 @@ class Model:
         self.inputs = []
         self.networks = []
         self.output = output
-        
+
         # network.index --> network map
         self.netidx_to_model = {}
         # network.name --> network map
         self.networks_by_name = {}
-        
+
         for network in self.traverse():
             # create groups
             if isinstance(network, Output):
@@ -488,7 +488,7 @@ class Model:
             else: # if it is a Network, Add, Mult or otherwise
                 network.model = self # point the network back to the model
                 self.networks.append(network)
-                
+
         # b/c the NDNT requires that earlier networks have lower indices,
         # we need to reverse the network list and the associated indices
         self.networks.reverse()
@@ -505,10 +505,61 @@ class Model:
         self.output.update_num_neurons(num_neurons)
         # update the NDN as well
         self.NDN = _Model_to_NDN(self, verbose)
-    
+
+    # prevent the weights from being updated on forward
+    def freeze_weights(self, network_names=None):
+        for network in self.networks:
+            # skip networks we don't want
+            if network_names is not None and network.name not in network_names:
+                continue
+            self.NDN.set_parameters(name='weight', val=False,
+                                    ffnet_target=network.index)
+
+    # initialize the weights using a new random initialization
+    def reinitialize_weights(self, verbose=False):
+        # call the NDN create function again to reinitialize the weights
+        self.NDN = _Model_to_NDN(self, verbose)
+
+    # copy the weights from the previous model into this model
+    def use_weights_from(self, other_model, network_names=None):
+        # validate the models have the same structure before copying
+        # throw Exception if they do not have same structure
+        # https://docs.python.org/3/library/exceptions.html#exception-hierarchy
+        
+        # use all the network names if none are set
+        if network_names is None:
+            network_names = list(self.networks_by_name.keys())
+        
+        filtered_self_networks = [net for net in self.networks if net.name in network_names]
+        filtered_other_networks = [net for net in other_model.networks if net.name in network_names]
+        if len(filtered_self_networks) != len(filtered_other_networks):
+            raise TypeError("models must have the same number of networks")
+        for ni in range(len(other_model.NDN.networks)):
+            # skip networks we don't want
+            if self.networks[ni].name not in network_names:
+                continue
+            if len(other_model.NDN.networks[ni].layers) != len(self.NDN.networks[ni].layers):
+                raise TypeError("networks must have the same number of layers")
+            for li in range(len(other_model.NDN.networks[ni].layers)):
+                prev_weight = other_model.NDN.networks[ni].layers[li].weight
+                curr_weight = self.NDN.networks[ni].layers[li].weight
+                if prev_weight.shape != curr_weight.shape:
+                    raise TypeError("weights must have the same shape")
+
+        for ni in range(len(other_model.NDN.networks)):
+            # skip networks we don't want
+            if self.networks[ni].name not in network_names:
+                continue
+            for li in range(len(other_model.NDN.networks[ni].layers)):
+                prev_layer = other_model.NDN.networks[ni].layers[li]
+                curr_layer = self.NDN.networks[ni].layers[li]
+                # have to make the tensors temporarily not require grad to do this
+                with torch.no_grad():
+                    curr_layer.weight = copy.deepcopy(prev_layer.weight)
+
     def __str__(self):
-        return 'Model len(inputs)'+str(len(self.inputs))+\
-            ', len(networks)='+str(len(self.networks))+\
+        return 'Model len(inputs)'+str(len(self.inputs))+ \
+            ', len(networks)='+str(len(self.networks))+ \
             ', output='+str(self.output.num_neurons)
 
     # recursively traverse, depth-first, from the output to the inputs
@@ -522,24 +573,24 @@ class Model:
         # base case
         if isinstance(inp, Input):
             return inp
-        
+
         for prev_inp in inp.inputs:
             self._traverse(prev_inp, inp, networks, verbose)
-    
+
     def traverse(self, verbose=False):
         # traverse starting from the output
         # this is the default behavior
         networks = []
         self._traverse(self.output, None, networks, verbose)
         return networks
-    
+
     def draw_network(self, verbose=False):
         g = nx.DiGraph()
-        
+
         for net in self.traverse(verbose):
             # add the node to the graph
             for inp in net.inputs:
                 g.add_edge(inp.name, net.name)
-                
+
         # draw graph
         nx.draw_networkx(g, with_labels=True)
