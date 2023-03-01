@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import model as mod
 from enum import Enum
+# https://docs.python.org/3/library/typing.html
 
 # to be able to load the Tensorboard events to see the loss
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
@@ -62,7 +63,8 @@ def _load_trial(trial_name, experiment_folder, datadir=None, lazy=True): # lazy=
         
     trial = Trial(trial_info=trial_info,
                   model=model,
-                  dataset=dataset)
+                  dataset=dataset,
+                  eval_function=None)
     # set the results properties so we have access to them
     trial.LLs = LLs
     trial.trial_directory = trial_directory
@@ -99,8 +101,9 @@ def load(expname, experiment_location, datadir=None, lazy=True): # load experime
                                 experiment_folder=experiment_folder, 
                                 datadir=datadir, 
                                 lazy=lazy)
-        except:
+        except Exception as e:
             print("Error loading trial", trial_name, "...skipping")
+            print(e)
             continue
         trials.append(trial)
     experiment.trials = trials # make sure to use the setter
@@ -117,15 +120,13 @@ class TrialInfo:
                  trial_params:dict,
                  dataset_params:dict,
                  dataset_class,
-                 fit_params:dict,
-                 eval_params:dict):
+                 fit_params:dict):
         self.name = name
         self.description = description
         self.trial_params = trial_params
         self.dataset_params = dataset_params
         self.dataset_class = dataset_class
         self.fit_params = fit_params
-        self.eval_params = eval_params
 
 
 # contains data and model to fit and return log-likelihoods for
@@ -133,17 +134,19 @@ class Trial:
     def __init__(self, 
                  trial_info:TrialInfo,
                  model:mod.Model,
-                 dataset):
+                 dataset,
+                 eval_function):
         self.name = trial_info.name
         self.description = trial_info.description
         self.trial_params = trial_info.trial_params
         self.trial_info = trial_info
         self.model = model
-        self._dataset = dataset # this is used in memory, but it is not saved with the pickle
+        self.eval_function = eval_function # not serialized
+        self._dataset = dataset # not serialized
         
         # these are initially null until the Trial is trained or loaded
         self.trial_directory = None
-        self.ckpts_directory  = None
+        self.ckpts_directory = None
         self.LLs = []
         self._losses = None # lazy loaded
 
@@ -213,7 +216,12 @@ class Trial:
         self.model.NDN.fit_dl(train_ds, val_ds, save_dir=self.ckpts_directory, force_dict_training=force_dict_training, **self.trial_info.fit_params)
         
         # eval model
-        self.LLs = self.model.NDN.eval_models(val_ds, **self.trial_info.eval_params)
+        # TODO: change this to be more flexible (e.g. what val_ds are for this one)
+        #       the eval_function is in the trial_info now,
+        #       so we can use it here instead of the previously made val_ds
+        #       We can also see if it makes sense to make the other val_ds customizable.
+        self.LLs = self.eval_function(self.model, self.dataset, device)
+        #self.LLs  self.model.NDN.eval_models(val_ds, **self.trial_info.eval_params)
 
         # creating the checkpoints automatically creates the trial_directory,
         # but, let's just confirm here

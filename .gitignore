@@ -4,6 +4,7 @@
 *.txt
 *.pickle
 *.pyc
+v1/lib/__pycache__/experiment.cpython-38.pyc
 lvs/lib/NDNT
 lvs/lib/NTdatasets
 lvs/__pycache__

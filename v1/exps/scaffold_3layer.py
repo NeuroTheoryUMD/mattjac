@@ -12,6 +12,7 @@ import NDNT.utils as utils # some other utilities
 from NTdatasets.cumming.monocular import MultiDataset
 from NDNT.modules.layers import *
 from NDNT.networks import *
+from NTdatasets.generic import GenericDataset
 
 import experiment as exp
 import model as m
@@ -41,7 +42,7 @@ adam_pars = utils.create_optimizer_params(
 adam_pars['device'] = device
 
 
-def cnim_scaffold(num_filters, num_inh_percent, reg_vals, kernel_widths):
+def cnim_scaffold(num_filters, num_inh_percent, reg_vals, kernel_widths, kernel_heights):
     conv_layer0 = m.ConvolutionalLayer(
         num_filters=num_filters[0],
         num_inh=int(num_filters[0]*num_inh_percent),
@@ -87,62 +88,117 @@ def cnim_scaffold(num_filters, num_inh_percent, reg_vals, kernel_widths):
     return m.Model(output_11, verbose=True)
 
 
-# TODO: also use multiunits (MUs)
-# TODO: also initialize the models a few times to compare across initializations
-# TODO: also try TCNIM (vs just spatial convolutions with different filter widths and heights)
-# ------------------------------
-# TODO: create a new regularization method penalizing the earlier weights more,
-#       forcing it to learn more about the more recent information
-# TODO: also add in rotation and translation invariance into the Trainer and Model
+def tcnim_scaffold(num_filters, num_inh_percent, reg_vals, kernel_widths, kernel_heights):
+    tconv_layer0 = m.TemporalConvolutionalLayer(
+        num_filters=num_filters[0],
+        num_inh=int(num_filters[0]*num_inh_percent),
+        filter_dims=[1,kernel_widths[0],1,kernel_heights[0]], # [C, w, h, t]
+        window='hamming',
+        padding='spatial',
+        NLtype=m.NL.relu,
+        norm_type=m.Norm.unit,
+        bias=False,
+        initialize_center=True,
+        output_norm='batch',
+        reg_vals=reg_vals)
+    tconv_layer1 = m.TemporalConvolutionalLayer().like(tconv_layer0)
+    tconv_layer1.params['num_filters'] = num_filters[1]
+    tconv_layer1.params['num_inh'] = int(num_filters[1]*num_inh_percent)
+    tconv_layer1.params['filter_dims'] = [1,kernel_widths[1],1,kernel_heights[1]] # [C, w, h, t]
+    tconv_layer2 = m.TemporalConvolutionalLayer().like(tconv_layer0)
+    tconv_layer2.params['num_filters'] = num_filters[2]
+    tconv_layer2.params['num_inh'] = int(num_filters[2]*num_inh_percent)
+    tconv_layer2.params['filter_dims'] = [1,kernel_widths[2],1,kernel_heights[2]] # [C, w, h, t]
+
+    readout_layer0 = m.Layer(
+        pos_constraint=True, # because we have inhibitory subunits on the first layer
+        norm_type=m.Norm.none,
+        NLtype=m.NL.softplus,
+        bias=True,
+        initialize_center=True,
+        reg_vals={'glocalx': 0.01}
+    )
+
+    inp_stim = m.Input(covariate='stim', input_dims=[1,36,1,10])
+
+    scaffold_net = m.Network(layers=[tconv_layer0, tconv_layer1, tconv_layer2],
+                             network_type=m.NetworkType.scaffold,
+                             name='scaffold')
+    readout_net = m.Network(layers=[readout_layer0],
+                            name='readout')
+    output_11 = m.Output(num_neurons=11)
+
+    inp_stim.to(scaffold_net)
+    scaffold_net.to(readout_net)
+    readout_net.to(output_11)
+    return m.Model(output_11, verbose=True)
+
+# TODO: why are the LLs infinite for some neurons?
+# TODO: try copying weights again and record when it is working better,
+#       not sure why it wasn't working better in my latest experiments
+#       FINISH UNIT TESTS
+# TODO: reinitialize the models multiple times, and record these during experiments
+# TODO: decrease receptive field size in the later layers (3 or 5)
 # TODO: also update DataLoader to sample across experiments more evenly
+# ------------------------------
+# TODO: also try TCNIM (vs just spatial convolutions with different filter widths and heights)
+#       see if convolutional filters over shorter time lags improve the fit or not
+#  fix: "Given groups=1, weight of size [40, 1, 21, 3], expected input[2000, 32, 56, 8] to have 1 channels, but got 32 channels instead"
+# TODO: create a new regularization method penalizing the earlier weights more,
+#       forcing it to learn more about the more recent information (recency regularization)
+# TODO: also add in rotation and translation invariance into the Trainer and Model
 # parameters to iterate over
-experiment_name = 'cnim_scaffold_3_layer_v4'
-experiment_desc = 'Try freezing the weights'
-expts = [['expt04', 'expt05'], ['expt04', 'expt05', 'expt06']]
-copy_weightses = [True] # we have to copy the weights if we are freezing them
-freeze_weightses = [True, False]
-num_filterses = [[24, 20, 16]]
-num_inh_percents = [0.75]
+experiment_name = 'cnim_scaffold_3_layer_v6'
+experiment_desc = 'Train with multi-units (include_MUs), eval only on SUs'
+expts = [['expt04', 'expt05'], ['expt04', 'expt05', 'expt06'], ['expt04', 'expt05', 'expt06', 'expt07']]
+copy_weightses = [False]
+freeze_weightses = [False]
+include_MUses = [True]
+num_filterses = [[32, 40, 48], [48, 40, 32]]
+num_inh_percents = [0.75, 0.5]
 kernel_widthses = [[21, 21, 21]]
+kernel_heightses = [[3, 3, 3]]
 reg_valses = [{'d2xt': 0.01, 'l1': 0.0001, 'center': 0.01, 'bcs': {'d2xt': 1}}]
 models = [{'cnim_scaffold': cnim_scaffold}]
-
+#models = [{'tcnim_scaffold': tcnim_scaffold}]
 
 # grid search through the desired parameters 
-grid_search = it.product(num_filterses, num_inh_percents, kernel_widthses, reg_valses, copy_weightses, freeze_weightses, models)
+grid_search = it.product(num_filterses, num_inh_percents, kernel_widthses, kernel_heightses, reg_valses, copy_weightses, freeze_weightses, include_MUses, models)
 print('====================================')
 print('RUNNING', len(list(grid_search)), 'EXPERIMENTS')
 print('====================================')
 # regenerate this since we used up the iterations by getting the length...
-grid_search = it.product(num_filterses, num_inh_percents, kernel_widthses, reg_valses, copy_weightses, freeze_weightses, models)
+grid_search = it.product(num_filterses, num_inh_percents, kernel_widthses, kernel_heightses, reg_valses, copy_weightses, freeze_weightses, include_MUses, models)
 
+
+def eval_function(model, dataset, device):
+    # get just the single units from the dataset
+    # make a dataset from these and use that as val_ds
+    val_ds = GenericDataset(dataset[dataset.SUs], device=device)
+    return model.NDN.eval_models(val_ds, null_adjusted=True)
 
 def generate_trial(prev_trials):
     trial_idx = 0
-    for num_filters, num_inh_percent, kernel_widths, reg_vals, copy_weights, freeze_weights, model in grid_search:
+    for num_filters, num_inh_percent, kernel_widths, kernel_heights, reg_vals, copy_weights, freeze_weights, include_MUs, model in grid_search:
         print('==========================================')
-        print(num_filters, num_inh_percent, kernel_widths, reg_vals, copy_weights, freeze_weights, list(model.keys())[0])
+        print(num_filters, num_inh_percent, kernel_widths, kernel_heights, reg_vals, copy_weights, freeze_weights, list(model.keys())[0])
         modelstr = list(model.keys())[0]
         modelfunc = list(model.values())[0]
 
         # make the model
-        model = modelfunc(num_filters, num_inh_percent, reg_vals, kernel_widths)
+        model = modelfunc(num_filters, num_inh_percent, reg_vals, kernel_widths, kernel_heights)
 
         for expt in expts:
             print('Loading dataset for', expt)
             dataset_params = {
                 'datadir': datadir,
                 'filenames': expt,
-                'include_MUs': False,
+                'include_MUs': include_MUs,
                 'time_embed': True,
                 'num_lags': num_lags
             }
             expt_dataset = MultiDataset(**dataset_params)
             expt_dataset.set_cells() # specify which cells to use (use all if no params provided)
-
-            eval_params = {
-                'null_adjusted': True
-            }
 
             # update model based on the provided params
             # modify the model_template.output to match the data.NC before creating
@@ -157,6 +213,7 @@ def generate_trial(prev_trials):
                         model.freeze_weights(network_names=['core'])
                     model.use_weights_from(prev_trial.model)
                 except TypeError as error:
+                    print(':: TYPE ERROR ::', end=' ----> ')
                     print(error) # eat error and continue (it is expected)
             else:
                 print(':: NO WEIGHTS YET ::')
@@ -168,8 +225,10 @@ def generate_trial(prev_trials):
                 'num_inh_percent': num_inh_percent,
                 'expt': '+'.join(expt),
                 'kernel_widths': ','.join([str(a) for a in kernel_widths]),
+                'kernel_heights': ','.join([str(a) for a in kernel_heights]),
                 'copy_weights': copy_weights,
                 'freeze_weights': freeze_weights,
+                'include_MUs': include_MUs,
                 'modelstr': modelstr
             }
             # add individual reg_vals to the trial_params
@@ -181,12 +240,12 @@ def generate_trial(prev_trials):
                                        trial_params=trial_params,
                                        dataset_params=dataset_params,
                                        dataset_class=MultiDataset,
-                                       fit_params=adam_pars,
-                                       eval_params=eval_params)
+                                       fit_params=adam_pars)
 
             trial = exp.Trial(trial_info=trial_info,
                               model=model,
-                              dataset=expt_dataset)
+                              dataset=expt_dataset,
+                              eval_function = eval_function)
             trial_idx += 1
             yield trial
 
