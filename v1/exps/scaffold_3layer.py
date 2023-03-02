@@ -30,7 +30,7 @@ dataset = MultiDataset(
     time_embed=True,
     num_lags=num_lags)
 
-adam_pars = utils.create_optimizer_params(
+fit_pars = utils.create_optimizer_params(
     optimizer_type='AdamW',
     batch_size=2000,
     num_workers=0,
@@ -39,7 +39,8 @@ adam_pars = utils.create_optimizer_params(
     optimize_graph=False,
     weight_decay = 0.1)
     #max_epochs=1)
-adam_pars['device'] = device
+fit_pars['device'] = device
+fit_pars['is_multiexp'] = True # to use the experiment_sampler
 
 
 def cnim_scaffold(num_filters, num_inh_percent, reg_vals, kernel_widths, kernel_heights):
@@ -133,29 +134,29 @@ def tcnim_scaffold(num_filters, num_inh_percent, reg_vals, kernel_widths, kernel
     readout_net.to(output_11)
     return m.Model(output_11, verbose=True)
 
-# TODO: why are the LLs infinite for some neurons?
+# TODO: also update DataLoader to sample across experiments more evenly
+# ------------------------------
+# TODO: decrease receptive field size in the later layers (3 or 5)
+# TODO: also add in rotation and translation invariance into the Trainer and Model
 # TODO: try copying weights again and record when it is working better,
 #       not sure why it wasn't working better in my latest experiments
 #       FINISH UNIT TESTS
 # TODO: reinitialize the models multiple times, and record these during experiments
-# TODO: decrease receptive field size in the later layers (3 or 5)
-# TODO: also update DataLoader to sample across experiments more evenly
-# ------------------------------
 # TODO: also try TCNIM (vs just spatial convolutions with different filter widths and heights)
 #       see if convolutional filters over shorter time lags improve the fit or not
 #  fix: "Given groups=1, weight of size [40, 1, 21, 3], expected input[2000, 32, 56, 8] to have 1 channels, but got 32 channels instead"
 # TODO: create a new regularization method penalizing the earlier weights more,
 #       forcing it to learn more about the more recent information (recency regularization)
-# TODO: also add in rotation and translation invariance into the Trainer and Model
 # parameters to iterate over
-experiment_name = 'cnim_scaffold_3_layer_v6'
-experiment_desc = 'Train with multi-units (include_MUs), eval only on SUs'
+experiment_name = 'is_multiexp_test02'
+experiment_desc = 'Testing the multi-experiment functionality of the Trainer'
 expts = [['expt04', 'expt05'], ['expt04', 'expt05', 'expt06'], ['expt04', 'expt05', 'expt06', 'expt07']]
 copy_weightses = [False]
 freeze_weightses = [False]
-include_MUses = [True]
-num_filterses = [[32, 40, 48], [48, 40, 32]]
-num_inh_percents = [0.75, 0.5]
+include_MUses = [False]
+is_multiexps = [True, False]
+num_filterses = [[32, 16, 8]]
+num_inh_percents = [0.75]
 kernel_widthses = [[21, 21, 21]]
 kernel_heightses = [[3, 3, 3]]
 reg_valses = [{'d2xt': 0.01, 'l1': 0.0001, 'center': 0.01, 'bcs': {'d2xt': 1}}]
@@ -163,28 +164,32 @@ models = [{'cnim_scaffold': cnim_scaffold}]
 #models = [{'tcnim_scaffold': tcnim_scaffold}]
 
 # grid search through the desired parameters 
-grid_search = it.product(num_filterses, num_inh_percents, kernel_widthses, kernel_heightses, reg_valses, copy_weightses, freeze_weightses, include_MUses, models)
+grid_search = it.product(num_filterses, num_inh_percents, kernel_widthses, kernel_heightses, reg_valses, copy_weightses, freeze_weightses, include_MUses, is_multiexps, models)
 print('====================================')
 print('RUNNING', len(list(grid_search)), 'EXPERIMENTS')
 print('====================================')
 # regenerate this since we used up the iterations by getting the length...
-grid_search = it.product(num_filterses, num_inh_percents, kernel_widthses, kernel_heightses, reg_valses, copy_weightses, freeze_weightses, include_MUses, models)
+grid_search = it.product(num_filterses, num_inh_percents, kernel_widthses, kernel_heightses, reg_valses, copy_weightses, freeze_weightses, include_MUses, is_multiexps, models)
 
 
+# why are the LLs infinite for some neurons when include_MUs?
+# the infinite ones are the ones that are not included in the list of SUs.
 def eval_function(model, dataset, device):
     # get just the single units from the dataset
     # make a dataset from these and use that as val_ds
-    val_ds = GenericDataset(dataset[dataset.SUs], device=device)
+    val_ds = GenericDataset(dataset[dataset.val_inds], device=device)
     return model.NDN.eval_models(val_ds, null_adjusted=True)
 
 def generate_trial(prev_trials):
     trial_idx = 0
-    for num_filters, num_inh_percent, kernel_widths, kernel_heights, reg_vals, copy_weights, freeze_weights, include_MUs, model in grid_search:
+    for num_filters, num_inh_percent, kernel_widths, kernel_heights, reg_vals, copy_weights, freeze_weights, include_MUs, is_multiexp, model in grid_search:
         print('==========================================')
         print(num_filters, num_inh_percent, kernel_widths, kernel_heights, reg_vals, copy_weights, freeze_weights, list(model.keys())[0])
         modelstr = list(model.keys())[0]
         modelfunc = list(model.values())[0]
 
+        fit_pars['is_multiexp'] = is_multiexp
+        
         # make the model
         model = modelfunc(num_filters, num_inh_percent, reg_vals, kernel_widths, kernel_heights)
 
@@ -229,6 +234,7 @@ def generate_trial(prev_trials):
                 'copy_weights': copy_weights,
                 'freeze_weights': freeze_weights,
                 'include_MUs': include_MUs,
+                'is_multiexp': is_multiexp,
                 'modelstr': modelstr
             }
             # add individual reg_vals to the trial_params
@@ -240,7 +246,7 @@ def generate_trial(prev_trials):
                                        trial_params=trial_params,
                                        dataset_params=dataset_params,
                                        dataset_class=MultiDataset,
-                                       fit_params=adam_pars)
+                                       fit_params=fit_pars)
 
             trial = exp.Trial(trial_info=trial_info,
                               model=model,

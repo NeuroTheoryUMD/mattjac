@@ -211,17 +211,10 @@ class Trial:
         assert self.dataset.train_inds is not None, 'Trial ['+self.trial_info.name+']dataset is missing train_inds'
         assert self.dataset.val_inds is not None, 'Trial ['+self.trial_info.name+']dataset is missing val_inds'
         
-        train_ds = GenericDataset(self.dataset[self.dataset.train_inds], device=device)
-        val_ds = GenericDataset(self.dataset[self.dataset.val_inds], device=device)
-        self.model.NDN.fit_dl(train_ds, val_ds, save_dir=self.ckpts_directory, force_dict_training=force_dict_training, **self.trial_info.fit_params)
+        self.model.NDN.fit(self.dataset, save_dir=self.ckpts_directory, force_dict_training=force_dict_training, **self.trial_info.fit_params)
         
         # eval model
-        # TODO: change this to be more flexible (e.g. what val_ds are for this one)
-        #       the eval_function is in the trial_info now,
-        #       so we can use it here instead of the previously made val_ds
-        #       We can also see if it makes sense to make the other val_ds customizable.
         self.LLs = self.eval_function(self.model, self.dataset, device)
-        #self.LLs  self.model.NDN.eval_models(val_ds, **self.trial_info.eval_params)
 
         # creating the checkpoints automatically creates the trial_directory,
         # but, let's just confirm here
@@ -295,7 +288,7 @@ class Experiment:
     def plot_LLs(self, trials=None, figsize=(15,5)):
         # default to using all trials if not are specifically provided
         if trials is None:
-            trials = [trial for trial in self.trials['trial']]
+            trials = [trial for trial in self.trials]
             
         if len(trials) == 0:
             print("No trials found to plot")
@@ -321,10 +314,10 @@ class Experiment:
         plt.legend(title='Model')
         sns.despine(fig)
         
-    def plot_losses(self, loss_type=Loss.val_epoch, trials=None, figsize=(15,5)):
+    def plot_losses(self, trials=None, loss_type=Loss.val_epoch, figsize=(15,5)):
         # default to using all trials if not are specifically provided
         if trials is None:
-            trials = [trial for trial in self.trials['trial']]
+            trials = [trial for trial in self.trials]
 
         if len(trials) == 0:
             print("No trials found to plot")

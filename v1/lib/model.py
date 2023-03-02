@@ -1,5 +1,6 @@
 import sys
-sys.path.insert(0, '../') # to have access to NDNT
+# TODO: figure out how to do this correctly before code review
+sys.path.insert(0, '../../') # to have access to NDNT
 
 import copy # needed to handle annoying python pass by reference
 import networkx as nx
