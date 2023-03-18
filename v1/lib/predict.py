@@ -13,6 +13,7 @@ class Results:
         # results[frame:int][network_name:str][layer:int] = output:ndarray
         self._outputs = [] # layer outputs per network
         self.outputs_shape = ()
+        self.jacobians = None # the DSTRFs for each layer for each network
         self.inps = None # input (e.g. stim)
         self.inps_shape = () # shape of the input (e.g. stim_dims)
         self.robs = None # actual robs
@@ -30,16 +31,17 @@ class Results:
 
     outputs = property(_get_outputs, _set_outputs)
 
-def predict(model, inps=None, robs=None, dataset=None, verbose=False):
+
+@torch.no_grad() # disable gradient calculation during inference
+def predict(model, inps=None, robs=None, dataset=None, network_names_to_use=None, verbose=False) -> Results:
     assert (inps is not None and robs is not None) or (dataset is not None),\
            'either (inps and robs) or dataset is required'
     if dataset is not None:
         # handle data.dfs (valid data frames, very important)
         # element-wise multiply the stim by the valid frames
         # to keep only the valid datapoints
-        robs = dataset.robs * dataset.dfs
-        inps = dataset.stim # TODO: should we remove any frame where a single neuron
-                            #       is invalid?
+        robs = dataset['robs'] * dataset['dfs']
+        inps = dataset['stim'] # TODO: should we remove any frame where a single neuron is invalid?
     
     # TODO: don't hardcode 'stim' down below,
     #       handle multiple covariates
@@ -53,15 +55,30 @@ def predict(model, inps=None, robs=None, dataset=None, verbose=False):
     if verbose: print('num_inps', num_inps)
     prev_output = inps
     all_outputs = [{} for _ in range(num_inps)] # initialize all lists
+    all_jacobians = [{} for _ in range(num_inps)] # initialize all lists
     # initialize the network lists
     for ni in range(len(model.networks)):
+        # skip networks that are not in the list of networks to use
+        if network_names_to_use is not None and model.networks[ni].name not in network_names_to_use:
+            continue
+        
         # populate the lists
         for inpi in range(num_inps):
             # add list of network layer predictions by network name
             all_outputs[inpi][model.networks[ni].name] = []
+            all_jacobians[inpi][model.networks[ni].name] = []
         # populate the network lists with the predictions
         for li in range(len(model.networks[ni].layers)):
             z = model.NDN.networks[ni].layers[li](prev_output)
+
+            # calculate the Jacobian to get the DSTRF at this layer
+            def model_fx(x):
+                with torch.cuda.amp.autocast():
+                    return model.NDN.networks[ni].layers[li](x)
+            for i in range(num_inps): # for each input
+                jacobian = torch.autograd.functional.jacobian(model_fx, prev_output[i], vectorize=True).cpu()
+                all_jacobians[i][model.networks[ni].name].append(jacobian)
+
             z_cpu = [z_i.detach().numpy() for z_i in z]
             z_torch = torch.tensor(np.array(z_cpu))
             # outputs is layers x num_inputs x dims
@@ -82,6 +99,7 @@ def predict(model, inps=None, robs=None, dataset=None, verbose=False):
     results = Results(model)
     results.inps = inps
     results.outputs = all_outputs
+    results.jacobians = all_jacobians
     results.robs = robs
     results.pred = pred
     return results
