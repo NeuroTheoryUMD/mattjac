@@ -13,11 +13,13 @@ class Results:
         # results[frame:int][network_name:str][layer:int] = output:ndarray
         self._outputs = [] # layer outputs per network
         self.outputs_shape = ()
+        self.jacobian = None # TODO: this is the Jacobian for the entire model
         self.jacobians = None # the DSTRFs for each layer for each network
         self.inps = None # input (e.g. stim)
         self.inps_shape = () # shape of the input (e.g. stim_dims)
         self.robs = None # actual robs
         self.pred = None # predicted robs
+        self.r2 = None # TODO: r2 is a measure of how well the model fits the data
         self.model = model
 
     def _set_outputs(self, outputs):
@@ -94,6 +96,18 @@ def predict(model, inps=None, robs=None, dataset=None, network_names_to_use=None
 
     # add predicted robs for time
     pred = model.NDN({'stim': inps}).detach().numpy()
+    
+    # calculate and populate the r2
+    robs = robs.detach().numpy() # detach the robs from the graph
+    r2 = 1 - np.sum((robs - pred)**2, axis=0) / np.sum((robs - np.mean(robs))**2, axis=0)
+    
+    # calculate and populate the Jacobian for the entire model
+    def model_stim(x):
+        with torch.cuda.amp.autocast():
+            return model.NDN({'stim': x})
+    jacobian = []
+    for i in range(len(inps)):
+        jacobian.append(torch.autograd.functional.jacobian(model_stim, inps[i], vectorize=True).cpu())
 
     # all_outputs[frame:int][network_name:str][layer:int] = output:ndarray
     results = Results(model)
@@ -102,4 +116,6 @@ def predict(model, inps=None, robs=None, dataset=None, network_names_to_use=None
     results.jacobians = all_jacobians
     results.robs = robs
     results.pred = pred
+    results.r2 = r2
+    results.jacobian = jacobian
     return results

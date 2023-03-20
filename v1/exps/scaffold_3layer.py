@@ -40,6 +40,7 @@ fit_pars = utils.create_optimizer_params(
     weight_decay = 0.1)
     #max_epochs=1)
 fit_pars['device'] = device
+fit_pars['verbose'] = True
 fit_pars['is_multiexp'] = True # to use the experiment_sampler
 
 
@@ -134,7 +135,6 @@ def tcnim_scaffold(num_filters, num_inh_percent, reg_vals, kernel_widths, kernel
     readout_net.to(output_11)
     return m.Model(output_11, verbose=True)
 
-# TODO: also update DataLoader to sample across experiments more evenly
 # ------------------------------
 # TODO: decrease receptive field size in the later layers (3 or 5)
 # TODO: also add in rotation and translation invariance into the Trainer and Model
@@ -148,16 +148,16 @@ def tcnim_scaffold(num_filters, num_inh_percent, reg_vals, kernel_widths, kernel
 # TODO: create a new regularization method penalizing the earlier weights more,
 #       forcing it to learn more about the more recent information (recency regularization)
 # parameters to iterate over
-experiment_name = 'is_multiexp_test04'
+experiment_name = 'is_multiexp_test05-1'
 experiment_desc = 'Testing the multi-experiment functionality of the Trainer with randomness'
-expts = [['expt04', 'expt05'], ['expt04', 'expt05', 'expt06'], ['expt04', 'expt05', 'expt06', 'expt07']]
+expts = [['expt04', 'expt05', 'expt06', 'expt07'], ['expt04', 'expt05', 'expt06', 'expt07', 'expt08']]
 copy_weightses = [False]
 freeze_weightses = [False]
 include_MUses = [False]
-is_multiexps = [True, False]
+is_multiexps = [False] #[False, True]
 num_filterses = [[24, 20, 16]]
-num_inh_percents = [0.25, 0.5]
-kernel_widthses = [[21, 21, 21]]
+num_inh_percents = [0.5]
+kernel_widthses = [[21, 11, 5]]
 kernel_heightses = [[3, 3, 3]]
 reg_valses = [{'d2xt': 0.01, 'l1': 0.0001, 'center': 0.01, 'bcs': {'d2xt': 1}}]
 models = [{'cnim_scaffold': cnim_scaffold}]
@@ -174,10 +174,12 @@ grid_search = it.product(num_filterses, num_inh_percents, kernel_widthses, kerne
 
 # why are the LLs infinite for some neurons when include_MUs?
 # the infinite ones are the ones that are not included in the list of SUs.
+from torch.utils.data.dataset import Subset
 def eval_function(model, dataset, device):
     # get just the single units from the dataset
     # make a dataset from these and use that as val_ds
-    val_ds = GenericDataset(dataset[dataset.val_inds], device=device)
+    #val_ds = GenericDataset(dataset[dataset.val_inds], device=device)
+    val_ds = Subset(dataset, dataset.val_inds)
     return model.NDN.eval_models(val_ds, null_adjusted=True)
 
 def generate_trial(prev_trials):
@@ -204,6 +206,12 @@ def generate_trial(prev_trials):
             }
             expt_dataset = MultiDataset(**dataset_params)
             expt_dataset.set_cells() # specify which cells to use (use all if no params provided)
+            
+            # reshape the expt_dataset column vectors to be 1D vectors
+            for i in range(len(expt_dataset)):
+                for key in dataset[0].keys():
+                    dataset[0][key] = dataset[0][key].squeeze()
+            
 
             # update model based on the provided params
             # modify the model_template.output to match the data.NC before creating

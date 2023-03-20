@@ -210,7 +210,11 @@ class Trial:
             force_dict_training = True
         assert self.dataset.train_inds is not None, 'Trial ['+self.trial_info.name+']dataset is missing train_inds'
         assert self.dataset.val_inds is not None, 'Trial ['+self.trial_info.name+']dataset is missing val_inds'
-        
+
+        # train_ds = GenericDataset(self.dataset[self.dataset.train_inds], device=device)
+        # val_ds = GenericDataset(self.dataset[self.dataset.val_inds], device=device)
+        # self.model.NDN.fit_dl(train_ds, val_ds, save_dir=self.ckpts_directory, force_dict_training=force_dict_training, **self.trial_info.fit_params)
+
         self.model.NDN.fit(self.dataset, save_dir=self.ckpts_directory, force_dict_training=force_dict_training, **self.trial_info.fit_params)
         
         # eval model
