@@ -73,13 +73,18 @@ def predict(model, inps=None, robs=None, dataset=None, network_names_to_use=None
         for li in range(len(model.networks[ni].layers)):
             z = model.NDN.networks[ni].layers[li](prev_output)
 
-            # calculate the Jacobian to get the DSTRF at this layer
-            def model_fx(x):
-                with torch.cuda.amp.autocast():
-                    return model.NDN.networks[ni].layers[li](x)
-            for i in range(num_inps): # for each input
-                jacobian = torch.autograd.functional.jacobian(model_fx, prev_output[i], vectorize=True).cpu()
-                all_jacobians[i][model.networks[ni].name].append(jacobian)
+            # calculate the Jacobian to get the DSTRF up through this layer
+            for li in range(len(model.networks[ni].layers)):
+                # calculate the Jacobian to get the DSTRF up through this layer
+                def model_fx(x):
+                    with torch.cuda.amp.autocast():
+                        prev_z = x
+                        for lii in range(li+1):
+                            prev_z = model.NDN.networks[ni].layers[lii](prev_z)
+                        return prev_z
+                for i in range(len(inps)): # for each input
+                    jacobian = torch.autograd.functional.jacobian(model_fx, inps[i], vectorize=True).cpu()
+                    all_jacobians[i][model.networks[ni].name].append(jacobian)
 
             z_cpu = [z_i.detach().numpy() for z_i in z]
             z_torch = torch.tensor(np.array(z_cpu))
