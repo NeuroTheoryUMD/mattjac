@@ -1,3 +1,4 @@
+*.mp4
 *.mat
 *.pdf
 *.ipynb_checkpoints
@@ -21,9 +22,10 @@ v1/figs
 v1/nim
 v1/experiments
 v1/__pycache__
-v1/viz/nim
-v1/viz/figs
-v1/viz/dstrfs
+v1/viz/*
 v1/archive/__pycache__/
 v1/DSTRF
 v1/dynamic_strf
+v1/former/data
+v1/former/.data
+v1/former/runs

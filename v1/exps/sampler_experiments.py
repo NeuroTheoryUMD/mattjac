@@ -32,13 +32,13 @@ dataset = MultiDataset(
 
 fit_pars = utils.create_optimizer_params(
     optimizer_type='AdamW',
-    batch_size=10,
+    batch_size=2000,
     num_workers=0,
     learning_rate=0.01,
     early_stopping_patience=4,
     optimize_graph=False,
     weight_decay = 0.1)
-    #max_epochs=1)
+#max_epochs=1)
 fit_pars['device'] = device
 fit_pars['verbose'] = True
 fit_pars['is_multiexp'] = True # to use the experiment_sampler
@@ -77,8 +77,8 @@ def cnim_scaffold(num_filters, num_inh_percent, reg_vals, kernel_widths, kernel_
     inp_stim = m.Input(covariate='stim', input_dims=[1,36,1,10])
 
     core_net = m.Network(layers=[conv_layer0, conv_layer1, conv_layer2],
-                             network_type=m.NetworkType.scaffold,
-                             name='core')
+                         network_type=m.NetworkType.scaffold,
+                         name='core')
     readout_net = m.Network(layers=[readout_layer0],
                             name='readout')
     # this is set as a starting point, but updated on each iteration
@@ -148,15 +148,15 @@ def tcnim_scaffold(num_filters, num_inh_percent, reg_vals, kernel_widths, kernel
 # TODO: create a new regularization method penalizing the earlier weights more,
 #       forcing it to learn more about the more recent information (recency regularization)
 # parameters to iterate over
-experiment_name = 'is_multiexp_test05-debug'
+experiment_name = 'is_multiexp_test06'
 experiment_desc = 'Testing the multi-experiment functionality of the Trainer with randomness'
-#expts = [['expt04', 'expt05', 'expt06', 'expt07', 'expt08']]
-expts = [['expt04']]
+expts = [['expt04', 'expt05', 'expt06', 'expt07', 'expt08', 'expt09', 'expt10', 'expt11']]
 copy_weightses = [False]
 freeze_weightses = [False]
 include_MUses = [False]
-is_multiexps = [False] #[False, True]
-num_filterses = [[24, 20, 16]]
+is_multiexps = [False, True]
+batch_sizes = [2000, 4000]
+num_filterses = [[16, 8, 8]]
 num_inh_percents = [0.5]
 kernel_widthses = [[21, 11, 5]]
 kernel_heightses = [[3, 3, 3]]
@@ -165,12 +165,12 @@ models = [{'cnim_scaffold': cnim_scaffold}]
 #models = [{'tcnim_scaffold': tcnim_scaffold}]
 
 # grid search through the desired parameters 
-grid_search = it.product(num_filterses, num_inh_percents, kernel_widthses, kernel_heightses, reg_valses, copy_weightses, freeze_weightses, include_MUses, is_multiexps, models)
+grid_search = it.product(num_filterses, num_inh_percents, kernel_widthses, kernel_heightses, reg_valses, copy_weightses, freeze_weightses, include_MUses, is_multiexps, batch_sizes, models)
 print('====================================')
 print('RUNNING', len(list(grid_search)), 'EXPERIMENTS')
 print('====================================')
 # regenerate this since we used up the iterations by getting the length...
-grid_search = it.product(num_filterses, num_inh_percents, kernel_widthses, kernel_heightses, reg_valses, copy_weightses, freeze_weightses, include_MUses, is_multiexps, models)
+grid_search = it.product(num_filterses, num_inh_percents, kernel_widthses, kernel_heightses, reg_valses, copy_weightses, freeze_weightses, include_MUses, is_multiexps, batch_sizes, models)
 
 
 # why are the LLs infinite for some neurons when include_MUs?
@@ -185,14 +185,15 @@ def eval_function(model, dataset, device):
 
 def generate_trial(prev_trials):
     trial_idx = 0
-    for num_filters, num_inh_percent, kernel_widths, kernel_heights, reg_vals, copy_weights, freeze_weights, include_MUs, is_multiexp, model in grid_search:
+    for num_filters, num_inh_percent, kernel_widths, kernel_heights, reg_vals, copy_weights, freeze_weights, include_MUs, is_multiexp, batch_size, model in grid_search:
         print('==========================================')
-        print(num_filters, num_inh_percent, kernel_widths, kernel_heights, reg_vals, copy_weights, freeze_weights, list(model.keys())[0])
+        print(num_filters, num_inh_percent, kernel_widths, kernel_heights, reg_vals, copy_weights, freeze_weights, include_MUs, is_multiexp, batch_size, list(model.keys())[0])
         modelstr = list(model.keys())[0]
         modelfunc = list(model.values())[0]
 
         fit_pars['is_multiexp'] = is_multiexp
-        
+        fit_pars['batch_size'] = batch_size
+
         # make the model
         model = modelfunc(num_filters, num_inh_percent, reg_vals, kernel_widths, kernel_heights)
 
@@ -207,12 +208,12 @@ def generate_trial(prev_trials):
             }
             expt_dataset = MultiDataset(**dataset_params)
             expt_dataset.set_cells() # specify which cells to use (use all if no params provided)
-            
+
             # reshape the expt_dataset column vectors to be 1D vectors
             for i in range(len(expt_dataset)):
                 for key in dataset[0].keys():
                     dataset[0][key] = dataset[0][key].squeeze()
-            
+
 
             # update model based on the provided params
             # modify the model_template.output to match the data.NC before creating
@@ -244,6 +245,7 @@ def generate_trial(prev_trials):
                 'freeze_weights': freeze_weights,
                 'include_MUs': include_MUs,
                 'is_multiexp': is_multiexp,
+                'batch_size': batch_size,
                 'modelstr': modelstr
             }
             # add individual reg_vals to the trial_params
