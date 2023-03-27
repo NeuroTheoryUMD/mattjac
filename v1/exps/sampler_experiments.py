@@ -148,7 +148,7 @@ def tcnim_scaffold(num_filters, num_inh_percent, reg_vals, kernel_widths, kernel
 # TODO: create a new regularization method penalizing the earlier weights more,
 #       forcing it to learn more about the more recent information (recency regularization)
 # parameters to iterate over
-experiment_name = 'sampler_experiments_02'
+experiment_name = 'sampler_experiments_01'
 experiment_desc = 'Testing the new sampler with most of the data'
 expts = [['expt01', 'expt02', 'expt03', 'expt04',
           'expt05', 'expt06', 'expt07', 'expt08',
@@ -158,8 +158,8 @@ expts = [['expt01', 'expt02', 'expt03', 'expt04',
 copy_weightses = [False]
 freeze_weightses = [False]
 include_MUses = [False]
-is_multiexps = [True, False]
-batch_sizes = [6000]
+is_multiexps = [False, True]
+batch_sizes = [6000, 12000]
 num_filterses = [[16, 8, 8]]
 num_inh_percents = [0.5]
 kernel_widthses = [[21, 11, 5]]
