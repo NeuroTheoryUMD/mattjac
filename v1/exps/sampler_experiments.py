@@ -148,14 +148,18 @@ def tcnim_scaffold(num_filters, num_inh_percent, reg_vals, kernel_widths, kernel
 # TODO: create a new regularization method penalizing the earlier weights more,
 #       forcing it to learn more about the more recent information (recency regularization)
 # parameters to iterate over
-experiment_name = 'is_multiexp_test06'
-experiment_desc = 'Testing the multi-experiment functionality of the Trainer with randomness'
-expts = [['expt04', 'expt05', 'expt06', 'expt07', 'expt08', 'expt09', 'expt10', 'expt11']]
+experiment_name = 'sampler_experiments_02'
+experiment_desc = 'Testing the new sampler with most of the data'
+expts = [['expt01', 'expt02', 'expt03', 'expt04',
+          'expt05', 'expt06', 'expt07', 'expt08',
+          'expt09', 'expt10', 'expt11', 'expt12',
+          'expt13', 'expt14', 'expt15', 'expt16']]
+          #'expt17', 'expt18', 'expt19', 'expt20', 'expt21']]
 copy_weightses = [False]
 freeze_weightses = [False]
 include_MUses = [False]
-is_multiexps = [False, True]
-batch_sizes = [2000, 4000]
+is_multiexps = [True, False]
+batch_sizes = [6000]
 num_filterses = [[16, 8, 8]]
 num_inh_percents = [0.5]
 kernel_widthses = [[21, 11, 5]]
@@ -208,12 +212,6 @@ def generate_trial(prev_trials):
             }
             expt_dataset = MultiDataset(**dataset_params)
             expt_dataset.set_cells() # specify which cells to use (use all if no params provided)
-
-            # reshape the expt_dataset column vectors to be 1D vectors
-            for i in range(len(expt_dataset)):
-                for key in dataset[0].keys():
-                    dataset[0][key] = dataset[0][key].squeeze()
-
 
             # update model based on the provided params
             # modify the model_template.output to match the data.NC before creating
