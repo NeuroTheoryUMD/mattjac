@@ -288,49 +288,61 @@ class Experiment:
             trials.append(trial)
         assert len(trials) > 0, 'no trials were run'
         self.trials = trials # make sure to call the setter this way
-    
+
     def plot_LLs(self, trials=None, figsize=(15,5)):
-        # default to using all trials if not are specifically provided
         if trials is None:
-            trials = [trial for trial in self.trials]
-            
+            trials = [trial.trial for idx, trial in self.trials.iterrows()]
+    
         if len(trials) == 0:
             print("No trials found to plot")
             return
-        
-        # get maximum num_neurons for the experiment
+    
         max_num_neurons = 0
         for trial in trials:
             if trial.model.output.num_neurons > max_num_neurons:
                 max_num_neurons = trial.model.output.num_neurons
-        
+    
         df = pd.DataFrame({
             'Neuron': ['N'+str(n) for n in range(max_num_neurons)],
         })
-        
-        # get the trials and order them by the desired order
+    
         for trial in trials:
             df[trial.name] = np.concatenate((trial.LLs, np.zeros(max_num_neurons-len(trial.LLs), dtype=np.float32)))
+    
         fig, ax1 = plt.subplots(figsize=figsize)
         tidy = df.melt(id_vars='Neuron').rename(columns=str.title)
         ax = sns.barplot(x='Neuron', y='Value', hue='Variable', data=tidy, ax=ax1)
         ax.set(xlabel='Neuron', ylabel='Log-Likelihood')
-        plt.legend(title='Model')
+
+        # Move the legend to the top right corner and make the text smaller
+        plt.legend(title='Model', loc='upper right', fontsize='small', title_fontsize='small')
+
         sns.despine(fig)
-        
+    
+        # Add asterisks
+        trial_names = [trial.name for trial in trials]
+        max_indices = df.drop(columns=['Neuron']).idxmax(axis=1)
+        for i, bar in enumerate(ax.containers):
+            if i >= len(trial_names):
+                break
+            for j, b in enumerate(bar):
+                if max_indices[j] == trial_names[i]:
+                    height = b.get_height()
+                    ax.text(b.get_x() + b.get_width() / 2, height, '*', ha='center', va='bottom')
+
     def plot_losses(self, trials=None, loss_type=Loss.val_epoch, figsize=(15,5)):
         # default to using all trials if not are specifically provided
         if trials is None:
-            trials = [trial for trial in self.trials]
-
+            trials = [trial.trial for idx, trial in self.trials.iterrows()]
+        
         if len(trials) == 0:
             print("No trials found to plot")
             return
-        
+
         plt.figure(figsize=figsize)
         for trial in trials:
             plt.plot(trial.losses(loss_type), label=trial.name)
-        plt.legend()
+        plt.legend(title='Model', loc='upper right', fontsize='small', title_fontsize='small')
         plt.show()
         
     def trials_where(self, union=False, **kwargs):

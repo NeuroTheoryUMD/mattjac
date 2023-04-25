@@ -4,6 +4,7 @@ sys.path.insert(0, '../') # to have access to NTdatasets
 import pandas as pd
 import torch
 import numpy as np
+import model as mod
 from NTdatasets.generic import GenericDataset
 
 
@@ -35,7 +36,8 @@ class Results:
 
 
 @torch.no_grad() # disable gradient calculation during inference
-def predict(model, inps=None, robs=None, dataset=None, network_names_to_use=None, verbose=False) -> Results:
+def predict(model, inps=None, robs=None, dataset=None, start=None, end=None,
+            network_names_to_use=None, verbose=False) -> Results:
     assert (inps is not None and robs is not None) or (dataset is not None),\
            'either (inps and robs) or dataset is required'
     if dataset is not None:
@@ -55,7 +57,7 @@ def predict(model, inps=None, robs=None, dataset=None, network_names_to_use=None
     # get all the outputs
     num_inps = inps.shape[0]
     if verbose: print('num_inps', num_inps)
-    prev_output = inps
+    prev_outputs = []
     all_outputs = [{} for _ in range(num_inps)] # initialize all lists
     all_jacobians = [{} for _ in range(num_inps)] # initialize all lists
     # initialize the network lists
@@ -71,20 +73,34 @@ def predict(model, inps=None, robs=None, dataset=None, network_names_to_use=None
             all_jacobians[inpi][model.networks[ni].name] = []
         # populate the network lists with the predictions
         for li in range(len(model.networks[ni].layers)):
+            # concatenate the previous outputs if the previous network is a scaffold network
+            if ni > 0 and model.networks[ni-1].network_type == mod.NetworkType.scaffold:
+                print('concatenating scaffold network outputs')
+                prev_output = torch.cat(prev_outputs, dim=1)
+                prev_outputs = []
+            elif ni == 0 and li == 0:
+                prev_output = inps
+            else:
+                prev_output = prev_outputs[-1]
+            
+            print('prev_output shape', prev_output.shape, 'ni', ni, model.networks[ni].network_type, 'li', li)
             z = model.NDN.networks[ni].layers[li](prev_output)
 
             # calculate the Jacobian to get the DSTRF up through this layer
             for li in range(len(model.networks[ni].layers)):
                 # calculate the Jacobian to get the DSTRF up through this layer
-                def model_fx(x):
+                def network_regular(x):
                     with torch.cuda.amp.autocast():
                         prev_z = x
                         for lii in range(li+1):
                             prev_z = model.NDN.networks[ni].layers[lii](prev_z)
                         return prev_z
                 for i in range(len(inps)): # for each input
-                    jacobian = torch.autograd.functional.jacobian(model_fx, inps[i], vectorize=True).cpu()
+                    jacobian = torch.autograd.functional.jacobian(network_regular, inps[i], vectorize=True).cpu()
                     all_jacobians[i][model.networks[ni].name].append(jacobian)
+
+            # TODO: concatenate the outputs of the layers if they are part of a scaffold network
+            #       to return to the next network, don't just use the last layer's output
 
             z_cpu = [z_i.detach().numpy() for z_i in z]
             z_torch = torch.tensor(np.array(z_cpu))
@@ -97,7 +113,7 @@ def predict(model, inps=None, robs=None, dataset=None, network_names_to_use=None
                 all_outputs[i][model.networks[ni].name].append(np.expand_dims(z_cpu[i], 0))
             if verbose:
                 print(prev_output.shape, '-->', z_torch.shape)
-            prev_output = z_torch
+            prev_outputs.append(z_torch)
 
     # add predicted robs for time
     pred = model.NDN({'stim': inps}).detach().numpy()

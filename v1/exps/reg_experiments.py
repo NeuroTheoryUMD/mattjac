@@ -103,13 +103,14 @@ def cnim_scaffold(num_filters, num_inh_percent, reg_vals, kernel_widths, kernel_
 # TODO: create a new regularization method penalizing the earlier weights more,
 #       forcing it to learn more about the more recent information (recency regularization)
 # parameters to iterate over
-experiment_name = 'reg_experiment_03'
-experiment_desc = 'Testing the new activity regularization method'
-expts = [['expt01', 'expt02', 'expt03', 'expt04',
-          'expt05', 'expt06', 'expt07', 'expt08',
-          'expt09', 'expt10', 'expt11', 'expt12']]
-#          'expt13', 'expt14', 'expt15', 'expt16',
-#          'expt17', 'expt18', 'expt19', 'expt20', 'expt21']]
+experiment_name = 'reg_experiment_05'
+experiment_desc = 'Comparing different regularization values for the activity and L1 regularization'
+expts = [['expt04']]
+          # 'expt01', 'expt02', 'expt03', 'expt04'
+          # 'expt05', 'expt06', 'expt07', 'expt08',
+          # 'expt09', 'expt10', 'expt11', 'expt12',
+          # 'expt13', 'expt14', 'expt15', 'expt16',
+          # 'expt17', 'expt18', 'expt19', 'expt20', 'expt21']]
 copy_weightses = [False]
 freeze_weightses = [False]
 include_MUses = [False]
@@ -121,8 +122,16 @@ kernel_widthses = [[21, 11, 5]]
 kernel_heightses = [[3, 3, 3]]
 # remove the l1 regularization for now and try different orders of magnitude for the activity regularization
 # TODO: also just do 1 experiment
-reg_valses = [{'l1': 0.0001, 'activity': 0.001},
-              {'l1': 0.0001, 'entropy': 0.1}]
+reg_valses = [{'activity': 0.01},
+              {'activity': 0.001},
+              {'activity': 0.0001},
+              {'activity': 0.00001},
+              {'activity': 0.000001},
+              {'l1': 0.01},
+              {'l1': 0.001},
+              {'l1': 0.0001},
+              {'l1': 0.00001},
+              {'l1': 0.000001}]
 
 models = [{'cnim_scaffold': cnim_scaffold}]
 
