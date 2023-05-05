@@ -60,10 +60,12 @@ def cnim_scaffold(num_filters, num_inh_percent, reg_vals, kernel_widths, kernel_
     conv_layer1.params['num_filters'] = num_filters[1]
     conv_layer1.params['num_inh'] = int(num_filters[1]*num_inh_percent)
     conv_layer1.params['filter_dims'] = kernel_widths[1]
+    conv_layer1.params['reg_vals'] = {'activity': reg_vals['activity']}
     conv_layer2 = m.ConvolutionalLayer().like(conv_layer0)
     conv_layer2.params['num_filters'] = num_filters[2]
     conv_layer2.params['num_inh'] = int(num_filters[2]*num_inh_percent)
     conv_layer2.params['filter_dims'] = kernel_widths[2]
+    conv_layer2.params['reg_vals'] = {'activity': reg_vals['activity']}
 
     readout_layer0 = m.Layer(
         pos_constraint=True, # because we have inhibitory subunits on the first layer
@@ -103,8 +105,8 @@ def cnim_scaffold(num_filters, num_inh_percent, reg_vals, kernel_widths, kernel_
 # TODO: create a new regularization method penalizing the earlier weights more,
 #       forcing it to learn more about the more recent information (recency regularization)
 # parameters to iterate over
-experiment_name = 'reg_experiment_05'
-experiment_desc = 'Comparing different regularization values for the activity and L1 regularization'
+experiment_name = 'reg_experiment_10'
+experiment_desc = 'Comparing activity reg and weight regs and only act reg on the deeper layers.'
 expts = [['expt04']]
           # 'expt01', 'expt02', 'expt03', 'expt04'
           # 'expt05', 'expt06', 'expt07', 'expt08',
@@ -121,17 +123,13 @@ num_inh_percents = [0.5]
 kernel_widthses = [[21, 11, 5]]
 kernel_heightses = [[3, 3, 3]]
 # remove the l1 regularization for now and try different orders of magnitude for the activity regularization
-# TODO: also just do 1 experiment
-reg_valses = [{'activity': 0.01},
-              {'activity': 0.001},
-              {'activity': 0.0001},
-              {'activity': 0.00001},
-              {'activity': 0.000001},
-              {'l1': 0.01},
-              {'l1': 0.001},
-              {'l1': 0.0001},
-              {'l1': 0.00001},
-              {'l1': 0.000001}]
+# TODO: try nonneg loss instead of relu, see how that affects things
+reg_valses = [{'activity': 1.0,  'd2xt': 0.01, 'center': 0.01, 'bcs': {'d2xt': 1}},
+              {'activity': 0.75, 'd2xt': 0.01, 'center': 0.01, 'bcs': {'d2xt': 1}},
+              {'activity': 0.5,  'd2xt': 0.01, 'center': 0.01, 'bcs': {'d2xt': 1}},
+              {'activity': 0.25, 'd2xt': 0.01, 'center': 0.01, 'bcs': {'d2xt': 1}},
+              {'activity': 0.1,  'd2xt': 0.01, 'center': 0.01, 'bcs': {'d2xt': 1}},
+              {'activity': 0.0,  'd2xt': 0.01, 'center': 0.01, 'bcs': {'d2xt': 1}}]
 
 models = [{'cnim_scaffold': cnim_scaffold}]
 

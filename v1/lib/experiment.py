@@ -291,7 +291,7 @@ class Experiment:
 
     def plot_LLs(self, trials=None, figsize=(15,5)):
         if trials is None:
-            trials = [trial.trial for idx, trial in self.trials.iterrows()]
+            trials = self.trials
     
         if len(trials) == 0:
             print("No trials found to plot")
@@ -333,7 +333,7 @@ class Experiment:
     def plot_losses(self, trials=None, loss_type=Loss.val_epoch, figsize=(15,5)):
         # default to using all trials if not are specifically provided
         if trials is None:
-            trials = [trial.trial for idx, trial in self.trials.iterrows()]
+            trials = self.trials
         
         if len(trials) == 0:
             print("No trials found to plot")
@@ -363,8 +363,12 @@ class Experiment:
             i += 1
 
         # query and return the matching trial objects
-        trials = [trial for trial in self.trials.query(query)['trial']]
-        return trials
+        trials = [trial for trial in self.trials_df.query(query)['trial']]
+        
+        if len(trials) == 1: # return the trial if there is only one
+            return trials[0]
+        else: # otherwise return the list
+            return trials
     
     def _set_trials(self, trials):
         # get all trial_params keys
@@ -379,10 +383,17 @@ class Experiment:
         
         # concatenate the individual DFs
         self._trials = pd.concat(dfs)
-        self._trials = self.trials.sort_values(by='name') # sort alphabetically by name
+        self._trials = self.trials_df.sort_values(by='name') # sort alphabetically by name
+    
+    def _get_trials_df(self):
+        return self._trials
     
     def _get_trials(self):
-        return self._trials
+        return self._trials['trial'].values
+    
+    # property to encapsulate getting and setting trials dataframe
+    trials_df = property(fget=_get_trials_df, fset=_set_trials)
     
     # property to encapsulate getting and setting trials
     trials = property(fget=_get_trials, fset=_set_trials)
+    

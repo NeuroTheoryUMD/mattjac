@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from model import Input, Output
+import predict
 
 
 # plotting methods to plot:
@@ -184,8 +185,30 @@ def plot_robs(robs, pred=None, smooth=None, figsize=(5,10)):
         plt.plot(pred_to_plot, label='pred')
         plt.legend()
     plt.show()
-    
-    
+
+
+def plot_activity(trials, start=0, end=100, figsize=(30,20), param='name'):
+    # compare the activity of the subunits and neurons for different reg values
+    # (concatenate the weights from all the layers)
+    # plot the weights for each trial
+    fig = plt.figure(figsize=figsize)
+    # turn gridlines off
+    for i,trial in enumerate(trials):
+        ax = fig.add_subplot(len(trials),1,i+1)
+        ax.grid(False) # turn gridlines off
+        model = trial.model
+        results = predict.predict(model,
+                                  dataset=trial.dataset[start:end],
+                                  network_names_to_use=['core'],
+                                  calc_jacobian=False)
+        # only plot the first layer
+        im = [np.squeeze(results.outputs[i]['core'][0]) for i in range(50)]
+        imax = np.max(im)
+        imin = -imax
+        ax.imshow(im, cmap='gray', vmin=imin, vmax=imax)
+        ax.set_title(param+' = '+str(trial.trial_params[param]), fontsize=12)
+    plt.show()
+
 
 ########################################################################    
 

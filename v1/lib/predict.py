@@ -37,7 +37,7 @@ class Results:
 
 @torch.no_grad() # disable gradient calculation during inference
 def predict(model, inps=None, robs=None, dataset=None, start=None, end=None,
-            network_names_to_use=None, verbose=False) -> Results:
+            network_names_to_use=None, verbose=False, calc_jacobian=False) -> Results:
     assert (inps is not None and robs is not None) or (dataset is not None),\
            'either (inps and robs) or dataset is required'
     if dataset is not None:
@@ -53,7 +53,8 @@ def predict(model, inps=None, robs=None, dataset=None, start=None, end=None,
     # TODO: for scaffold networks,
     #       if the previous network is defined as a scaffold,
     #       then, concatenate all previous outputs together before calling forward
-
+    #       this is because the scaffold network will take in all previous outputs
+    
     # get all the outputs
     num_inps = inps.shape[0]
     if verbose: print('num_inps', num_inps)
@@ -75,7 +76,8 @@ def predict(model, inps=None, robs=None, dataset=None, start=None, end=None,
         for li in range(len(model.networks[ni].layers)):
             # concatenate the previous outputs if the previous network is a scaffold network
             if ni > 0 and model.networks[ni-1].network_type == mod.NetworkType.scaffold:
-                print('concatenating scaffold network outputs')
+                if verbose:
+                    print('concatenating scaffold network outputs')
                 prev_output = torch.cat(prev_outputs, dim=1)
                 prev_outputs = []
             elif ni == 0 and li == 0:
@@ -83,21 +85,23 @@ def predict(model, inps=None, robs=None, dataset=None, start=None, end=None,
             else:
                 prev_output = prev_outputs[-1]
             
-            print('prev_output shape', prev_output.shape, 'ni', ni, model.networks[ni].network_type, 'li', li)
+            if verbose:
+                print('prev_output shape', prev_output.shape, 'ni', ni, model.networks[ni].network_type, 'li', li)
             z = model.NDN.networks[ni].layers[li](prev_output)
 
-            # calculate the Jacobian to get the DSTRF up through this layer
-            for li in range(len(model.networks[ni].layers)):
+            if calc_jacobian:
                 # calculate the Jacobian to get the DSTRF up through this layer
-                def network_regular(x):
-                    with torch.cuda.amp.autocast():
-                        prev_z = x
-                        for lii in range(li+1):
-                            prev_z = model.NDN.networks[ni].layers[lii](prev_z)
-                        return prev_z
-                for i in range(len(inps)): # for each input
-                    jacobian = torch.autograd.functional.jacobian(network_regular, inps[i], vectorize=True).cpu()
-                    all_jacobians[i][model.networks[ni].name].append(jacobian)
+                for li in range(len(model.networks[ni].layers)):
+                    # calculate the Jacobian to get the DSTRF up through this layer
+                    def network_regular(x):
+                        with torch.cuda.amp.autocast():
+                            prev_z = x
+                            for lii in range(li+1):
+                                prev_z = model.NDN.networks[ni].layers[lii](prev_z)
+                            return prev_z
+                    for i in range(len(inps)): # for each input
+                        jacobian = torch.autograd.functional.jacobian(network_regular, inps[i], vectorize=True).cpu()
+                        all_jacobians[i][model.networks[ni].name].append(jacobian)
 
             # TODO: concatenate the outputs of the layers if they are part of a scaffold network
             #       to return to the next network, don't just use the last layer's output
@@ -121,14 +125,15 @@ def predict(model, inps=None, robs=None, dataset=None, start=None, end=None,
     # calculate and populate the r2
     robs = robs.detach().numpy() # detach the robs from the graph
     r2 = 1 - np.sum((robs - pred)**2, axis=0) / np.sum((robs - np.mean(robs))**2, axis=0)
-    
-    # calculate and populate the Jacobian for the entire model
-    def model_stim(x):
-        with torch.cuda.amp.autocast():
-            return model.NDN({'stim': x})
+
     jacobian = []
-    for i in range(len(inps)):
-        jacobian.append(torch.autograd.functional.jacobian(model_stim, inps[i], vectorize=True).cpu())
+    if calc_jacobian:
+        # calculate and populate the Jacobian for the entire model
+        def model_stim(x):
+            with torch.cuda.amp.autocast():
+                return model.NDN({'stim': x})
+        for i in range(len(inps)):
+            jacobian.append(torch.autograd.functional.jacobian(model_stim, inps[i], vectorize=True).cpu())
 
     # all_outputs[frame:int][network_name:str][layer:int] = output:ndarray
     results = Results(model)
