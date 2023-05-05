@@ -50,11 +50,6 @@ def predict(model, inps=None, robs=None, dataset=None, start=None, end=None,
     # TODO: don't hardcode 'stim' down below,
     #       handle multiple covariates
 
-    # TODO: for scaffold networks,
-    #       if the previous network is defined as a scaffold,
-    #       then, concatenate all previous outputs together before calling forward
-    #       this is because the scaffold network will take in all previous outputs
-    
     # get all the outputs
     num_inps = inps.shape[0]
     if verbose: print('num_inps', num_inps)
@@ -97,14 +92,12 @@ def predict(model, inps=None, robs=None, dataset=None, start=None, end=None,
                         with torch.cuda.amp.autocast():
                             prev_z = x
                             for lii in range(li+1):
+                                # TODO: update this to handle scaffold networks
                                 prev_z = model.NDN.networks[ni].layers[lii](prev_z)
                             return prev_z
                     for i in range(len(inps)): # for each input
                         jacobian = torch.autograd.functional.jacobian(network_regular, inps[i], vectorize=True).cpu()
                         all_jacobians[i][model.networks[ni].name].append(jacobian)
-
-            # TODO: concatenate the outputs of the layers if they are part of a scaffold network
-            #       to return to the next network, don't just use the last layer's output
 
             z_cpu = [z_i.detach().numpy() for z_i in z]
             z_torch = torch.tensor(np.array(z_cpu))

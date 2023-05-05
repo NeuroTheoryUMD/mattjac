@@ -6,6 +6,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 from model import Input, Output
 import predict
+import torch
+import os
+
+import plotly.graph_objects as go
+import plotly.express as px
+from plotly.subplots import make_subplots
 
 
 # plotting methods to plot:
@@ -187,7 +193,7 @@ def plot_robs(robs, pred=None, smooth=None, figsize=(5,10)):
     plt.show()
 
 
-def plot_activity(trials, start=0, end=100, figsize=(30,20), param='name'):
+def plot_activity(trials, start=0, end=100, figsize=(30,20), title_param='name'):
     # compare the activity of the subunits and neurons for different reg values
     # (concatenate the weights from all the layers)
     # plot the weights for each trial
@@ -202,12 +208,170 @@ def plot_activity(trials, start=0, end=100, figsize=(30,20), param='name'):
                                   network_names_to_use=['core'],
                                   calc_jacobian=False)
         # only plot the first layer
-        im = [np.squeeze(results.outputs[i]['core'][0]) for i in range(50)]
+        im = [np.squeeze(results.outputs[i]['core'][0]) for i in range(start, end)]
         imax = np.max(im)
         imin = -imax
         ax.imshow(im, cmap='gray', vmin=imin, vmax=imax)
-        ax.set_title(param+' = '+str(trial.trial_params[param]), fontsize=12)
+        # choose the param
+        if title_param == 'name':
+            param_value = trial.name
+        elif title_param == 'description':
+            param_value = trial.description
+        else:
+            param_value = str(trial.trial_params[title_param])
+        
+        ax.set_title(title_param+' = '+param_value, fontsize=12)
     plt.show()
+    
+
+def plot_jacobians():
+    # TODO: clean up and make this work
+    num_subunits = [32, 16, 8]
+    rows = 8
+    cols = 8
+    for t in range(0,NT):
+        fig = plt.figure(figsize=(20,10))
+        grid = matplotlib.gridspec.GridSpec(rows, cols)
+        i = 0
+        # plot the stim for the current time
+        ax_stim = fig.add_subplot(grid[0, :])
+        ax_stim.imshow(inps[t].reshape(36,10).T, interpolation='none', cmap='gray', origin='lower')
+        ax_stim.set_title('stimulus')
+        for l in range(3):
+            for u in range(num_subunits[l]):
+                ax_cluster = fig.add_subplot(grid[i//cols+1, i%cols])
+                subunit_jacobian = all_jacobians[t][model.networks[ni].name][l][0,36*u:36*(u+1),:]
+                imax = torch.max(torch.abs(subunit_jacobian))
+                imin = -imax
+                ax_cluster.imshow(torch.mean(subunit_jacobian, axis=0).reshape(36,10).T,
+                                  vmin=imin, vmax=imax,
+                                  interpolation='none',
+                                  cmap='gray',
+                                  origin='lower')
+                # draw a vertical line at point 15
+                ax_cluster.axvline(x=15, color='r', linestyle='--')
+                ax_cluster.set_title('layer ' + str(l) + ' - subunit ' + str(u+1))
+                i += 1
+    
+        # ffmpeg requires that the digits start at 0
+        plt.savefig(os.path.join('viz/dstrfs_layers', f'frame-{t:04d}.png'))
+        plt.close(fig)
+    
+    
+def plot_jacobians_animated():
+    num_filterses = [16, 8, 8]
+
+    imframes = []
+    imax = 0
+    for frame in range(start, end):
+        #for layer in range(3):
+        layer = 0
+        subunit_jacobians = []
+        for u in range(num_filterses[layer]):
+            subunit_jacobian = results_more_reg.jacobians[frame]['core'][layer][0,36*u:36*(u+1),:]
+            im = subunit_jacobian[15,:].reshape(36,10).T # don't take the mean, just plot the center position
+            imax = max(imax, torch.max(im))
+            subunit_jacobians.append(im)
+        imframes.append(subunit_jacobians)
+    imax = float(imax.detach().numpy())
+    imin = -imax
+
+    fig = make_subplots(rows=4, cols=4)
+    # change the color scheme of the figures
+    fig.update_layout(coloraxis=dict(colorscale='gray'))
+    
+    # add traces for the subunits
+    for i in range(16):
+        row,col = np.unravel_index(i, (4,4))
+        fig.add_trace(px.imshow(imframes[0][i], zmin=imin, zmax=imax).data[0],
+                      row=row+1, col=col+1)
+    
+    frames = []
+    for i in range(start, end):
+        frame_data = []
+        for j in range(16):
+            frame_data.append(
+                px.imshow(imframes[i][j], zmin=imin, zmax=imax)
+                .update_traces(xaxis=f"x{j+1}", yaxis=f"y{j+1}")
+                .data[0]
+            )
+        frames.append(
+            go.Frame(
+                name=str(i),
+                data=frame_data,
+            )
+        )
+    
+    figa = go.Figure(data=fig.data, frames=frames, layout=fig.layout)
+    
+    # add slider
+    figa.update_layout(
+        sliders=[
+            {
+                "active": 0,
+                "currentvalue": {"prefix": "animation_frame="},
+                "len": 0.9,
+                "steps": [
+                    {
+                        "args": [
+                            [fr.name],
+                            {
+                                "frame": {"duration": 0, "redraw": True},
+                                "mode": "immediate",
+                                "fromcurrent": True,
+                            },
+                        ],
+                        "label": fr.name,
+                        "method": "animate",
+                    }
+                    for fr in figa.frames
+                ]
+            }
+        ]
+    )
+    
+    # add play button
+    figa.update_layout(
+        updatemenus=[
+            {
+                "buttons": [
+                    {
+                        "args": [
+                            None,
+                            {
+                                "frame": {"duration": 500, "redraw": True},
+                                "fromcurrent": True,
+                                "transition": {"duration": 300, "easing": "quadratic-in-out"},
+                            },
+                        ],
+                        "label": "Play",
+                        "method": "animate",
+                    },
+                    {
+                        "args": [
+                            [None],
+                            {
+                                "frame": {"duration": 0, "redraw": True},
+                                "mode": "immediate",
+                                "transition": {"duration": 0},
+                            },
+                        ],
+                        "label": "Pause",
+                        "method": "animate",
+                    },
+                ],
+                "direction": "left",
+                "pad": {"r": 10, "t": 87},
+                "showactive": False,
+                "type": "buttons",
+                "x": 0.1,
+                "xanchor": "right",
+                "y": 0,
+                "yanchor": "top",
+            }
+        ]
+    )
+
 
 
 ########################################################################    

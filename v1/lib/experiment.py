@@ -364,11 +364,7 @@ class Experiment:
 
         # query and return the matching trial objects
         trials = [trial for trial in self.trials_df.query(query)['trial']]
-        
-        if len(trials) == 1: # return the trial if there is only one
-            return trials[0]
-        else: # otherwise return the list
-            return trials
+        return trials
     
     def _set_trials(self, trials):
         # get all trial_params keys

@@ -41,7 +41,6 @@ fit_pars = utils.create_optimizer_params(
 #max_epochs=1)
 fit_pars['device'] = device
 fit_pars['verbose'] = True
-fit_pars['is_multiexp'] = True # to use the experiment_sampler
 
 
 def cnim_scaffold(num_filters, num_inh_percent, reg_vals, kernel_widths, kernel_heights):
@@ -60,12 +59,14 @@ def cnim_scaffold(num_filters, num_inh_percent, reg_vals, kernel_widths, kernel_
     conv_layer1.params['num_filters'] = num_filters[1]
     conv_layer1.params['num_inh'] = int(num_filters[1]*num_inh_percent)
     conv_layer1.params['filter_dims'] = kernel_widths[1]
-    conv_layer1.params['reg_vals'] = {'activity': reg_vals['activity']}
+    if 'activity' in reg_vals.keys():
+        conv_layer1.params['reg_vals'] = {'activity': reg_vals['activity']}
     conv_layer2 = m.ConvolutionalLayer().like(conv_layer0)
     conv_layer2.params['num_filters'] = num_filters[2]
     conv_layer2.params['num_inh'] = int(num_filters[2]*num_inh_percent)
     conv_layer2.params['filter_dims'] = kernel_widths[2]
-    conv_layer2.params['reg_vals'] = {'activity': reg_vals['activity']}
+    if 'activity' in reg_vals.keys():
+        conv_layer2.params['reg_vals'] = {'activity': reg_vals['activity']}
 
     readout_layer0 = m.Layer(
         pos_constraint=True, # because we have inhibitory subunits on the first layer
@@ -93,24 +94,23 @@ def cnim_scaffold(num_filters, num_inh_percent, reg_vals, kernel_widths, kernel_
 
 
 # ------------------------------
-# TODO: decrease receptive field size in the later layers (3 or 5)
+# TODO: try nonneg loss instead of relu, see how that affects things
 # TODO: also add in rotation and translation invariance into the Trainer and Model
 # TODO: try copying weights again and record when it is working better,
 #       not sure why it wasn't working better in my latest experiments
 #       FINISH UNIT TESTS
-# TODO: reinitialize the models multiple times, and record these during experiments
 # TODO: also try TCNIM (vs just spatial convolutions with different filter widths and heights)
 #       see if convolutional filters over shorter time lags improve the fit or not
 #  fix: "Given groups=1, weight of size [40, 1, 21, 3], expected input[2000, 32, 56, 8] to have 1 channels, but got 32 channels instead"
 # TODO: create a new regularization method penalizing the earlier weights more,
 #       forcing it to learn more about the more recent information (recency regularization)
 # parameters to iterate over
-experiment_name = 'reg_experiment_10'
+experiment_name = 'disentanglement_01'
 experiment_desc = 'Comparing activity reg and weight regs and only act reg on the deeper layers.'
-expts = [['expt04']]
-          # 'expt01', 'expt02', 'expt03', 'expt04'
-          # 'expt05', 'expt06', 'expt07', 'expt08',
-          # 'expt09', 'expt10', 'expt11', 'expt12',
+#expts = [['expt04']]
+expts =  [['expt01', 'expt02', 'expt03', 'expt04',
+           'expt05', 'expt06', 'expt07', 'expt08',
+           'expt09', 'expt10', 'expt11', 'expt12']]
           # 'expt13', 'expt14', 'expt15', 'expt16',
           # 'expt17', 'expt18', 'expt19', 'expt20', 'expt21']]
 copy_weightses = [False]
@@ -122,14 +122,12 @@ num_filterses = [[16, 8, 8]]
 num_inh_percents = [0.5]
 kernel_widthses = [[21, 11, 5]]
 kernel_heightses = [[3, 3, 3]]
-# remove the l1 regularization for now and try different orders of magnitude for the activity regularization
-# TODO: try nonneg loss instead of relu, see how that affects things
-reg_valses = [{'activity': 1.0,  'd2xt': 0.01, 'center': 0.01, 'bcs': {'d2xt': 1}},
-              {'activity': 0.75, 'd2xt': 0.01, 'center': 0.01, 'bcs': {'d2xt': 1}},
-              {'activity': 0.5,  'd2xt': 0.01, 'center': 0.01, 'bcs': {'d2xt': 1}},
-              {'activity': 0.25, 'd2xt': 0.01, 'center': 0.01, 'bcs': {'d2xt': 1}},
-              {'activity': 0.1,  'd2xt': 0.01, 'center': 0.01, 'bcs': {'d2xt': 1}},
-              {'activity': 0.0,  'd2xt': 0.01, 'center': 0.01, 'bcs': {'d2xt': 1}}]
+num_runs = 1 # the number of times to run each trial
+reg_valses = [{'activity':0.0001, 'd2xt': 0.01, 'center': 0.01, 'bcs': {'d2xt': 1}},
+              {'activity':0.00001, 'd2xt': 0.01, 'center': 0.01, 'bcs': {'d2xt': 1}},
+              {'activity':0.000001, 'd2xt': 0.01, 'center': 0.01, 'bcs': {'d2xt': 1}},
+              {'activity':0.0000001, 'd2xt': 0.01, 'center': 0.01, 'bcs': {'d2xt': 1}},
+              {'activity':0.0,      'd2xt': 0.01, 'center': 0.01, 'bcs': {'d2xt': 1}}]
 
 models = [{'cnim_scaffold': cnim_scaffold}]
 
@@ -168,67 +166,77 @@ def generate_trial(prev_trials):
         model = modelfunc(num_filters, num_inh_percent, reg_vals, kernel_widths, kernel_heights)
 
         for expt in expts:
-            print('Loading dataset for', expt)
-            dataset_params = {
-                'datadir': datadir,
-                'filenames': expt,
-                'include_MUs': include_MUs,
-                'time_embed': True,
-                'num_lags': num_lags
-            }
-            expt_dataset = MultiDataset(**dataset_params)
-            expt_dataset.set_cells() # specify which cells to use (use all if no params provided)
-
-            # update model based on the provided params
-            # modify the model_template.output to match the data.NC before creating
-            print('Updating model output neurons to:', expt_dataset.NC)
-            model.update_num_neurons(expt_dataset.NC)
-
-            if copy_weights and len(prev_trials) > 0:
-                prev_trial = prev_trials[-1]
-                try:
-                    # freeze weights if set as well
-                    if freeze_weights:
-                        model.freeze_weights(network_names=['core'])
-                    model.use_weights_from(prev_trial.model)
-                except TypeError as error:
-                    print(':: TYPE ERROR ::', end=' ----> ')
-                    print(error) # eat error and continue (it is expected)
-            else:
-                print(':: NO WEIGHTS YET ::')
-
-            # track the specific parameters going into this trial
-            trial_params = {
-                'null_adjusted_LL': True,
-                'num_filters': ','.join([str(a) for a in num_filters]),
-                'num_inh_percent': num_inh_percent,
-                'expt': '+'.join(expt),
-                'kernel_widths': ','.join([str(a) for a in kernel_widths]),
-                'kernel_heights': ','.join([str(a) for a in kernel_heights]),
-                'copy_weights': copy_weights,
-                'freeze_weights': freeze_weights,
-                'include_MUs': include_MUs,
-                'is_multiexp': is_multiexp,
-                'batch_size': batch_size,
-                'modelstr': modelstr
-            }
-            # add individual reg_vals to the trial_params
-            for k,v in reg_vals.items():
-                trial_params[k] = v
-
-            trial_info = exp.TrialInfo(name=modelstr+str(trial_idx),
-                                       description=modelstr+' with specified parameters',
-                                       trial_params=trial_params,
-                                       dataset_params=dataset_params,
-                                       dataset_class=MultiDataset,
-                                       fit_params=fit_pars)
-
-            trial = exp.Trial(trial_info=trial_info,
-                              model=model,
-                              dataset=expt_dataset,
-                              eval_function = eval_function)
+            for run in range(num_runs):
+                # put boundary in the activity.txt log
+                with open('activity.txt', 'a') as f:
+                    if 'activity' in reg_vals.keys():
+                        f.write('run_activity '+str(reg_vals['activity'])+'\n')
+                    else:
+                        f.write('run_activity -1.0\n')
+                    
+                print('Loading dataset for', expt)
+                dataset_params = {
+                    'datadir': datadir,
+                    'filenames': expt,
+                    'include_MUs': include_MUs,
+                    'time_embed': True,
+                    'num_lags': num_lags
+                }
+                expt_dataset = MultiDataset(**dataset_params)
+                expt_dataset.set_cells() # specify which cells to use (use all if no params provided)
+    
+                # update model based on the provided params
+                # modify the model_template.output to match the data.NC before creating
+                print('Updating model output neurons to:', expt_dataset.NC)
+                model.update_num_neurons(expt_dataset.NC)
+    
+                if copy_weights and len(prev_trials) > 0:
+                    prev_trial = prev_trials[-1]
+                    try:
+                        # freeze weights if set as well
+                        if freeze_weights:
+                            model.freeze_weights(network_names=['core'])
+                        model.use_weights_from(prev_trial.model)
+                    except TypeError as error:
+                        print(':: TYPE ERROR ::', end=' ----> ')
+                        print(error) # eat error and continue (it is expected)
+                else:
+                    print(':: NO WEIGHTS YET ::')
+    
+                # track the specific parameters going into this trial
+                trial_params = {
+                    'null_adjusted_LL': True,
+                    'num_filters': ','.join([str(a) for a in num_filters]),
+                    'num_inh_percent': num_inh_percent,
+                    'expt': '+'.join(expt),
+                    'kernel_widths': ','.join([str(a) for a in kernel_widths]),
+                    'kernel_heights': ','.join([str(a) for a in kernel_heights]),
+                    'copy_weights': copy_weights,
+                    'freeze_weights': freeze_weights,
+                    'include_MUs': include_MUs,
+                    'is_multiexp': is_multiexp,
+                    'batch_size': batch_size,
+                    'modelstr': modelstr,
+                    'trial_idx': trial_idx,
+                    'run': run
+                }
+                # add individual reg_vals to the trial_params
+                for k,v in reg_vals.items():
+                    trial_params[k] = v
+    
+                trial_info = exp.TrialInfo(name=modelstr+str(trial_idx)+'.'+str(run),
+                                           description=modelstr+' with specified parameters',
+                                           trial_params=trial_params,
+                                           dataset_params=dataset_params,
+                                           dataset_class=MultiDataset,
+                                           fit_params=fit_pars)
+    
+                trial = exp.Trial(trial_info=trial_info,
+                                  model=model,
+                                  dataset=expt_dataset,
+                                  eval_function = eval_function)
+                yield trial
             trial_idx += 1
-            yield trial
 
 
 # run the experiment
