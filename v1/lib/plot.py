@@ -4,6 +4,7 @@ sys.path.insert(0, '../') # to have access to NDNT
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib import gridspec
 from model import Input, Output
 import predict
 import torch
@@ -11,7 +12,7 @@ import os
 
 import plotly.graph_objects as go
 import plotly.express as px
-from plotly.subplots import make_subplots
+from plotly import subplots
 
 
 # plotting methods to plot:
@@ -224,72 +225,131 @@ def plot_activity(trials, start=0, end=100, figsize=(30,20), title_param='name')
     plt.show()
     
 
-def plot_jacobians():
-    # TODO: clean up and make this work
-    num_subunits = [32, 16, 8]
-    rows = 8
-    cols = 8
-    for t in range(0,NT):
-        fig = plt.figure(figsize=(20,10))
-        grid = matplotlib.gridspec.GridSpec(rows, cols)
-        i = 0
-        # plot the stim for the current time
-        ax_stim = fig.add_subplot(grid[0, :])
-        ax_stim.imshow(inps[t].reshape(36,10).T, interpolation='none', cmap='gray', origin='lower')
-        ax_stim.set_title('stimulus')
-        for l in range(3):
-            for u in range(num_subunits[l]):
-                ax_cluster = fig.add_subplot(grid[i//cols+1, i%cols])
-                subunit_jacobian = all_jacobians[t][model.networks[ni].name][l][0,36*u:36*(u+1),:]
-                imax = torch.max(torch.abs(subunit_jacobian))
-                imin = -imax
-                ax_cluster.imshow(torch.mean(subunit_jacobian, axis=0).reshape(36,10).T,
-                                  vmin=imin, vmax=imax,
-                                  interpolation='none',
-                                  cmap='gray',
-                                  origin='lower')
-                # draw a vertical line at point 15
-                ax_cluster.axvline(x=15, color='r', linestyle='--')
-                ax_cluster.set_title('layer ' + str(l) + ' - subunit ' + str(u+1))
-                i += 1
+def plot_jacobians(results, model, frame, neuron=None, figsize=(20,10), max_cols=8):
+    # set some params that we can pass in later
+    network = 'core'
+    width = 36
+    lags = 10
+    middle = width//2
     
-        # ffmpeg requires that the digits start at 0
-        plt.savefig(os.path.join('viz/dstrfs_layers', f'frame-{t:04d}.png'))
-        plt.close(fig)
-    
-    
-def plot_jacobians_animated():
-    num_filterses = [16, 8, 8]
+    num_layers = len(model.networks_by_name[network].layers)
+    num_subunits = [layer.params['num_filters'] for layer in model.networks_by_name[network].layers]
 
+    # get the min and max of the jacobians for each layer
+    imaxes = []
+    for l in range(num_layers):
+        imax = torch.max(results.jacobians[frame][network][l])
+        imaxes.append(imax)
+            
+    cols = max_cols
+    rows = sum(num_subunits[l] for l in range(num_layers))//cols + 1
+    fig = plt.figure(figsize=figsize)
+    grid = gridspec.GridSpec(rows, cols)
+    i = 0
+    # plot the stim for the current time
+    ax_stim = fig.add_subplot(grid[0, :])
+    ax_stim.imshow(results.inps[frame].reshape(width,lags).T, cmap='gray', origin='lower')
+    ax_stim.set_title('stimulus')
+    
+    # get the weights for a neuron from the readout layer
+    if neuron is not None:
+        readout_weights = model.networks_by_name['readout'].layers[0].weights[:,:,neuron]
+    
+    for l in range(num_layers):
+        for u in range(num_subunits[l]):
+            ax_cluster = fig.add_subplot(grid[i//cols+1, i%cols])
+            subunit_jacobian = results.jacobians[frame][network][l][0,width*u:width*(u+1),:]
+            if neuron is not None:
+                # rescale the neuron weights to be between 0 and 1
+                neuron_weights = torch.tensor(readout_weights[(l+1)*u,:])
+                neuron_weights = (neuron_weights - torch.min(neuron_weights)) / (torch.max(neuron_weights) - torch.min(neuron_weights))
+                # copy the readout weights to a new axis
+                #neuron_weights = torch.unsqueeze(neuron_weights, 1)
+                #neuron_weights = neuron_weights.expand(len(neuron_weights), lags)
+                # multiply the subunit jacobian by the readout weights for the neuron
+                subunit_jacobian = subunit_jacobian[middle].reshape(width,lags) * neuron_weights[middle]
+            else:
+                subunit_jacobian = subunit_jacobian[middle].reshape(width,lags)
+
+            imax = torch.max(subunit_jacobian) #imaxes[l]
+            imin = torch.min(subunit_jacobian) #-imax
+            
+            # plot the jacobian            
+            ax_cluster.imshow(subunit_jacobian.T,
+                              vmin=imin, vmax=imax,
+                              interpolation='none',
+                              cmap='gray',
+                              origin='lower')
+            # draw a vertical line at the middle point
+            ax_cluster.axvline(x=middle, color='r', linestyle='--', alpha=0.7)
+            ax_cluster.set_title('layer ' + str(l) + ' - subunit ' + str(u+1))
+            i += 1
+    plt.show()
+
+
+def _extract_imframes(start, end, num_subunits, layer, width, lags, middle, results):
     imframes = []
     imax = 0
     for frame in range(start, end):
-        #for layer in range(3):
-        layer = 0
         subunit_jacobians = []
-        for u in range(num_filterses[layer]):
-            subunit_jacobian = results_more_reg.jacobians[frame]['core'][layer][0,36*u:36*(u+1),:]
-            im = subunit_jacobian[15,:].reshape(36,10).T # don't take the mean, just plot the center position
+        for u in range(num_subunits):
+            subunit_jacobian = results.jacobians[frame]['core'][layer][0,width*u:width*(u+1),:]
+            im = subunit_jacobian[middle,:].reshape(width,lags).T # don't take the mean, just plot the center position
             imax = max(imax, torch.max(im))
             subunit_jacobians.append(im)
         imframes.append(subunit_jacobians)
     imax = float(imax.detach().numpy())
     imin = -imax
+    return imframes, imax, imin
 
-    fig = make_subplots(rows=4, cols=4)
+def plot_jacobians_animated(resultsA, modelA, start, end, layer, resultsB=None, modelB=None, max_cols=8, framerate=10):
+    # set some params that we can pass in later
+    network = 'core'
+    width = 36
+    lags = 10
+    middle = width//2
+
+    num_subunitsA = modelA.networks_by_name[network].layers[layer].params['num_filters']
+    num_subunitsB = 0
+    if resultsB is not None:
+        num_subunitsB = modelB.networks_by_name[network].layers[layer].params['num_filters']
+        
+    num_subunits = num_subunitsA + num_subunitsB
+    
+    imframesA, imaxA, iminA, = _extract_imframes(start, end, num_subunitsA, layer, width, lags, middle, resultsA)
+    imframesB = []
+    imaxB = float('-inf')
+    iminB = float('inf')
+    if resultsB is not None:
+        imframesB, imaxB, iminB = _extract_imframes(start, end, num_subunitsB, layer, width, lags, middle, resultsB)
+        
+    # combine the imframes
+    imframes = []
+    for i in range(len(imframesA)):
+        imframes.append(imframesA[i] + imframesB[i])
+    
+    # get the smallest min and largest max
+    imax = max(imaxA, imaxB)
+    imin = min(iminA, iminB)
+
+    cols = max_cols
+    rows = (num_subunitsA+num_subunitsB) // cols + 1
+
+    fig = subplots.make_subplots(rows=rows, cols=cols,
+                        row_titles=['A']*(num_subunitsA//cols)+['B']*(num_subunitsB//cols))
     # change the color scheme of the figures
     fig.update_layout(coloraxis=dict(colorscale='gray'))
     
     # add traces for the subunits
-    for i in range(16):
-        row,col = np.unravel_index(i, (4,4))
+    for i in range(num_subunits):
+        row,col = np.unravel_index(i, (rows,cols))
         fig.add_trace(px.imshow(imframes[0][i], zmin=imin, zmax=imax).data[0],
                       row=row+1, col=col+1)
     
     frames = []
     for i in range(start, end):
         frame_data = []
-        for j in range(16):
+        for j in range(num_subunits):
             frame_data.append(
                 px.imshow(imframes[i][j], zmin=imin, zmax=imax)
                 .update_traces(xaxis=f"x{j+1}", yaxis=f"y{j+1}")
@@ -339,7 +399,7 @@ def plot_jacobians_animated():
                         "args": [
                             None,
                             {
-                                "frame": {"duration": 500, "redraw": True},
+                                "frame": {"duration": 1000//framerate, "redraw": True},
                                 "fromcurrent": True,
                                 "transition": {"duration": 300, "easing": "quadratic-in-out"},
                             },
@@ -371,6 +431,7 @@ def plot_jacobians_animated():
             }
         ]
     )
+    figa.show()
 
 
 
