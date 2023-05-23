@@ -3,6 +3,7 @@ import sys
 sys.path.insert(0, '../../') # to have access to NDNT
 
 import copy # needed to handle annoying python pass by reference
+import pprint
 import networkx as nx
 from enum import Enum
 
@@ -80,7 +81,8 @@ def _convert_params(internal_layer_type,
                     temporal_tent_spacing=None,
                     num_iter=None,
                     output_config=None,
-                    res_layer=None):
+                    res_layer=None,
+                    num_lags=None):
     params = {
         'internal_layer_type': internal_layer_type
     }
@@ -102,6 +104,7 @@ def _convert_params(internal_layer_type,
     if num_iter is not None: params['num_iter'] = num_iter
     if output_config is not None: params['output_config'] = output_config
     if res_layer is not None: params['res_layer'] = res_layer
+    if num_lags is not None: params['num_lags'] = num_lags
     
     return params
     
@@ -269,7 +272,7 @@ class TemporalConvolutionalLayer:
     def __init__(self,
                  filter_dims=None,
                  window=None,
-                 padding='valid', # default in the NDN
+                 padding='spatial', # default in the NDN
                  num_filters=None,
                  num_inh=0,
                  bias=False,
@@ -311,10 +314,11 @@ class TemporalConvolutionalLayer:
 
 class IterativeTemporalConvolutionalLayer:
     def __init__(self,
-                 filter_dims=None,
-                 window=None,
-                 padding='valid', # default in the NDN
-                 num_filters=None,
+                 num_lags,
+                 filter_dims,
+                 window,
+                 num_filters,
+                 padding='spatial', # default in the NDN
                  num_inh=0,
                  bias=False,
                  norm_type=Norm.none,
@@ -326,9 +330,9 @@ class IterativeTemporalConvolutionalLayer:
                  temporal_tent_spacing:int=None,
                  num_iter=1,
                  output_config='last',
-                 res_layer=True):
+                 res_layer=True,):
         self.params = _convert_params(internal_layer_type=IterTlayer,
-                                      filter_dims=filter_dims,
+                                      filter_width=filter_dims,
                                       window=window,
                                       padding=padding,
                                       num_filters=num_filters,
@@ -343,7 +347,8 @@ class IterativeTemporalConvolutionalLayer:
                                       temporal_tent_spacing=temporal_tent_spacing,
                                       num_iter=num_iter,
                                       output_config=output_config,
-                                      res_layer=res_layer)
+                                      res_layer=res_layer,
+                                      num_lags=num_lags)
         self.network = None # to be able to point to the network we are a part of
         self.index = None # to be able to point to the layer we are a part of in the NDN
 
@@ -567,7 +572,6 @@ def _Model_to_NDN(model, verbose):
     ffnets = []
     for network in model.networks:
         ffnets.append(_Network_to_FFnetwork(network))
-    import pprint
     if verbose:
         print("=== MODEL ===")
         for i in range(len(model.networks)):

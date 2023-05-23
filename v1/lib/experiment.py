@@ -101,6 +101,9 @@ def load(expname, experiment_location, datadir=None, lazy=True): # load experime
         # skip hidden folders
         if trial_name.startswith('.'):
             continue
+        # skip the file named 'finished'
+        if trial_name == 'finished':
+            continue
         # finally, load the trial folder
         try:
             trial = _load_trial(trial_name=trial_name, 
