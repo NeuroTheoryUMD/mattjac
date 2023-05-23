@@ -1,4 +1,9 @@
 #!/bin/bash
 # this script is used to run the experiment and restart it until it completes
 
-python $1
+# loop until the file 'finished' is created
+while [ ! -f "../experiments/$1/finished" ]
+do
+    # run the experiment
+    python $1.py
+done

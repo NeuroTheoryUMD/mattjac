@@ -293,6 +293,10 @@ class Experiment:
             trials.append(trial)
         assert len(trials) > 0, 'no trials were run'
         self.trials = trials # make sure to call the setter this way
+        
+        # write a file to indicate that the experiment has finished
+        with open(os.path.join(self.experiment_folder, 'finished'), 'w') as f:
+            f.write('finished')
 
     def plot_LLs(self, trials=None, figsize=(15,5)):
         if trials is None:
