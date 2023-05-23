@@ -44,6 +44,8 @@ def predict(model, inps=None, robs=None, dataset=None, start=None, end=None,
         # handle data.dfs (valid data frames, very important)
         # element-wise multiply the stim by the valid frames
         # to keep only the valid datapoints
+        if 'robs' not in dataset:
+            raise Exception('dataset must be sliced (e.g. dataset[0:10])')
         robs = dataset['robs'] * dataset['dfs']
         inps = dataset['stim'] # TODO: should we remove any frame where a single neuron is invalid?
     

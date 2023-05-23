@@ -105,7 +105,7 @@ def cnim_scaffold(num_filters, num_inh_percent, reg_vals, kernel_widths, kernel_
 # TODO: create a new regularization method penalizing the earlier weights more,
 #       forcing it to learn more about the more recent information (recency regularization)
 # parameters to iterate over
-experiment_name = 'disentanglement_01'
+experiment_name = 'test_runner2'
 experiment_desc = 'Comparing activity reg and weight regs and only act reg on the deeper layers.'
 #expts = [['expt04']]
 expts =  [['expt01', 'expt02', 'expt03', 'expt04',

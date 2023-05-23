@@ -38,11 +38,13 @@ def plot_layer_weights(layer,
                        max_cols=8,
                        wspace=0.3,
                        hspace=0.3,
-                       cmap='gray'):
+                       cmap='gray',
+                       verbose=False):
     if fig is None:
         fig = plt.figure(figsize=figsize)
 
-    print(layer.shape, end=' --> ')
+    if verbose:
+        print(layer.shape, end=' --> ')
 
     # if it is 2D, make it 4D
     if len(layer.shape) == 2:
@@ -65,7 +67,8 @@ def plot_layer_weights(layer,
         layer = np.swapaxes(layer, 0, -1)
         layer = np.swapaxes(layer, -2, -1)
 
-    print(layer.shape)
+    if verbose:
+        print(layer.shape)
 
     # make the layer easier to iterate through and plot
     # (36, 10, 1, 1) --> (1, 1, 10, 36)
@@ -94,7 +97,7 @@ def plot_layer_weights(layer,
             imin = np.min(box.flatten())
             imax = np.max(box.flatten())
             box_ax.set_axis_off() # remove axis
-            box_ax.imshow(box, vmin=imin, vmax=imax, interpolation='none', aspect='auto', cmap=cmap)
+            box_ax.imshow(box, vmin=imin, vmax=imax, interpolation='none', aspect='auto', cmap=cmap, origin='lower')
             box_ax.set_title('C'+str(cur_weight)+',P'+str(prev_weight), pad=10) # add padding to leave room for the title
 
             box_idx += 1 # move onto the next box
@@ -109,7 +112,8 @@ def plot_network_weights(network,
                          max_cols=8,
                          wspace=1,
                          hspace=5,
-                         cmap='gray'):
+                         cmap='gray',
+                         verbose=False):
     # make the figure and axes
     fig, axs = plt.subplots(nrows=len(network.layers), ncols=1,
                             #constrained_layout=True,
@@ -132,7 +136,7 @@ def plot_network_weights(network,
 
         layer = network.layers[l].weights
         
-        plot_layer_weights(layer, subfig, figsize, max_cols, wspace, hspace, cmap)
+        plot_layer_weights(layer, subfig, figsize, max_cols, wspace, hspace, cmap, verbose)
         
         current_row += 1
 
@@ -142,10 +146,11 @@ def plot_model_weights(model,
                        max_cols=8,
                        wspace=0.5,
                        hspace=0.8,
-                       cmap='gray'):
+                       cmap='gray',
+                       verbose=False):
     for network in model.networks:
         if not isinstance(network, Input) and not isinstance(network, Output):
-            plot_network_weights(network, figsize, max_cols, wspace, hspace, cmap)
+            plot_network_weights(network, figsize, max_cols, wspace, hspace, cmap, verbose)
 
 
 
@@ -176,7 +181,13 @@ def plot_stim(stim,
                     aspect='auto', cmap='binary')
 
 
-def plot_robs(robs, pred=None, smooth=None, figsize=(5,10)):
+def plot_robs(robs, pred=None, smooth=None, neuron=None, figsize=(5, 10)):
+    # plot the robs and prediction for a single neuron
+    if neuron is not None:
+        robs = robs[:,neuron]
+        if pred is not None:
+            pred = pred[:,neuron]
+    
     robs_to_plot = robs
     pred_to_plot = None
     if pred is not None:
@@ -189,8 +200,17 @@ def plot_robs(robs, pred=None, smooth=None, figsize=(5,10)):
     fig = plt.figure(figsize=figsize)
     plt.plot(robs_to_plot, label='robs')
     if pred is not None:
-        plt.plot(pred_to_plot, label='pred')
+        # make the prediction use a dotted line
+        plt.plot(pred_to_plot, label='pred', linestyle='dotted')
         plt.legend()
+    # add a title
+    if neuron is not None:
+        plt.title('Neuron ' + str(neuron))
+    else:
+        plt.title('All neurons')
+    plt.xlabel('Time (ms)')
+    plt.ylabel('Firing rate (Hz)')
+    
     plt.show()
 
 

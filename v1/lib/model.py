@@ -65,6 +65,7 @@ class NetworkType(Enum):
 # converts params that are provided to the value required by the NDN
 def _convert_params(internal_layer_type,
                     filter_dims=None,
+                    filter_width=None,
                     window=None,
                     padding=None,
                     num_filters=None,
@@ -76,12 +77,16 @@ def _convert_params(internal_layer_type,
                     reg_vals=None,
                     output_norm=None,
                     pos_constraint=None,
-                    temporal_tent_spacing=None):
+                    temporal_tent_spacing=None,
+                    num_iter=None,
+                    output_config=None,
+                    res_layer=None):
     params = {
         'internal_layer_type': internal_layer_type
     }
 
     if filter_dims is not None: params['filter_dims'] = filter_dims
+    if filter_width is not None: params['filter_width'] = filter_width
     if window is not None: params['window'] = window
     if padding is not None: params['padding'] = padding
     if num_filters is not None: params['num_filters'] = num_filters
@@ -94,6 +99,9 @@ def _convert_params(internal_layer_type,
     if output_norm is not None: params['output_norm'] = output_norm
     if pos_constraint is not None: params['pos_constraint'] = pos_constraint
     if temporal_tent_spacing is not None: params['temporal_tent_spacing'] = temporal_tent_spacing
+    if num_iter is not None: params['num_iter'] = num_iter
+    if output_config is not None: params['output_config'] = output_config
+    if res_layer is not None: params['res_layer'] = res_layer
     
     return params
     
@@ -207,6 +215,56 @@ class ConvolutionalLayer:
     # define property to make it easier to remember
     weights = property(_get_weights)
 
+class IterativeConvolutionalLayer:
+    def __init__(self,
+                 filter_dims=None,
+                 window=None,
+                 padding='same', # default in the NDN
+                 num_filters=None,
+                 num_inh=0,
+                 bias=False,
+                 norm_type=Norm.none,
+                 NLtype=NL.linear,
+                 initialize_center=False,
+                 reg_vals=None,
+                 output_norm=None,
+                 pos_constraint=False,
+                 temporal_tent_spacing:int=None,
+                 num_iter=1,
+                 output_config='last',
+                 res_layer=True):
+        self.params = _convert_params(internal_layer_type=IterLayer,
+                                      filter_width=filter_dims, # Dan change filter_dims to filter_width here
+                                      window=window,
+                                      padding=padding,
+                                      num_filters=num_filters,
+                                      num_inh=num_inh,
+                                      bias=bias,
+                                      norm_type=norm_type,
+                                      NLtype=NLtype,
+                                      initialize_center=initialize_center,
+                                      reg_vals=reg_vals,
+                                      output_norm=output_norm,
+                                      pos_constraint=pos_constraint,
+                                      temporal_tent_spacing=temporal_tent_spacing,
+                                      num_iter=num_iter,
+                                      output_config=output_config,
+                                      res_layer=res_layer)
+        self.network = None # to be able to point to the network we are a part of
+        self.index = None # to be able to point to the layer we are a part of in the NDN
+
+    # make this layer like another layer
+    def like(self, layer):
+        # copy the other layer params into this layer's params
+        self.params = copy.deepcopy(layer.params)
+        return self
+
+    def _get_weights(self):
+        return self.network.model.NDN.networks[self.network.index].layers[self.index].get_weights()
+
+    # define property to make it easier to remember
+    weights = property(_get_weights)
+
 class TemporalConvolutionalLayer:
     def __init__(self,
                  filter_dims=None,
@@ -236,6 +294,56 @@ class TemporalConvolutionalLayer:
                                       output_norm=output_norm,
                                       pos_constraint=pos_constraint,
                                       temporal_tent_spacing=temporal_tent_spacing)
+        self.network = None # to be able to point to the network we are a part of
+        self.index = None # to be able to point to the layer we are a part of in the NDN
+
+    # make this layer like another layer
+    def like(self, layer):
+        # copy the other layer params into this layer's params
+        self.params = copy.deepcopy(layer.params)
+        return self
+
+    def _get_weights(self):
+        return self.network.model.NDN.networks[self.network.index].layers[self.index].get_weights()
+
+    # define property to make it easier to remember
+    weights = property(_get_weights)
+
+class IterativeTemporalConvolutionalLayer:
+    def __init__(self,
+                 filter_dims=None,
+                 window=None,
+                 padding='valid', # default in the NDN
+                 num_filters=None,
+                 num_inh=0,
+                 bias=False,
+                 norm_type=Norm.none,
+                 NLtype=NL.linear,
+                 initialize_center=False,
+                 reg_vals=None,
+                 output_norm=None,
+                 pos_constraint=False,
+                 temporal_tent_spacing:int=None,
+                 num_iter=1,
+                 output_config='last',
+                 res_layer=True):
+        self.params = _convert_params(internal_layer_type=IterTlayer,
+                                      filter_dims=filter_dims,
+                                      window=window,
+                                      padding=padding,
+                                      num_filters=num_filters,
+                                      num_inh=num_inh,
+                                      bias=bias,
+                                      norm_type=norm_type,
+                                      NLtype=NLtype,
+                                      initialize_center=initialize_center,
+                                      reg_vals=reg_vals,
+                                      output_norm=output_norm,
+                                      pos_constraint=pos_constraint,
+                                      temporal_tent_spacing=temporal_tent_spacing,
+                                      num_iter=num_iter,
+                                      output_config=output_config,
+                                      res_layer=res_layer)
         self.network = None # to be able to point to the network we are a part of
         self.index = None # to be able to point to the layer we are a part of in the NDN
 
@@ -461,7 +569,7 @@ def _Model_to_NDN(model, verbose):
         ffnets.append(_Network_to_FFnetwork(network))
     import pprint
     if verbose:
-        print('====FF====')
+        print("=== MODEL ===")
         for i in range(len(model.networks)):
             print('---', model.networks[i].name, '---')
             pprint.pprint(ffnets[i])
@@ -469,7 +577,8 @@ def _Model_to_NDN(model, verbose):
 
 
 class Model:
-    def __init__(self, output, verbose=False):
+    def __init__(self, output, name='', verbose=False):
+        self.name = name
         self.NDN = None # set this Model's NDN to None to start
         self.inputs = []
         self.networks = []

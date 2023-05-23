@@ -73,6 +73,12 @@ def _load_trial(trial_name, experiment_folder, datadir=None, lazy=True): # lazy=
 
 def load(expname, experiment_location, datadir=None, lazy=True): # load experiment    
     experiment_folder = os.path.join(experiment_location, expname)
+
+    # check if the experiment folder exists
+    if not os.path.exists(experiment_folder):
+        raise ValueError("Experiment folder does not exist")
+    
+    # load the exp_params
     with open(os.path.join(experiment_folder, 'exp_params.pickle'), 'rb') as f:
         exp_params = pickle.load(f)
     
@@ -81,7 +87,7 @@ def load(expname, experiment_location, datadir=None, lazy=True): # load experime
                             generate_trial=None,
                             experiment_location=experiment_location,
                             datadir=datadir,
-                            overwrite=Overwrite.overwrite)
+                            overwrite=Overwrite.none)
     
     # loop over trials in folder and deserialize them into Trial objects
     trials = []
@@ -252,10 +258,6 @@ class Experiment:
         self.generate_trial = generate_trial
         self.overwrite = overwrite
         
-        # if we don't specify how to overwrite
-        if self.overwrite == Overwrite.none:
-            assert not os.path.exists(self.experiment_folder), 'experiment_folder already exists and overwrite was not specified'
-        
         # experiment trials
         self._trials = []
     
@@ -266,9 +268,12 @@ class Experiment:
             os.makedirs(self.experiment_folder) # make the new experiment
         else: # overwrite the previous directory if asked to
             if self.overwrite == Overwrite.overwrite:
+                print('Experiment ['+self.name+'] already exists, overwriting previous experiment')
                 shutil.rmtree(self.experiment_folder, ignore_errors=True)
                 os.makedirs(self.experiment_folder) # make the new experiment
-            # else: it will automatically append
+            elif self.overwrite == Overwrite.none:
+                raise Exception('Experiment ['+self.name+'] already exists, set overwrite to Overwrite.overwrite to overwrite the previous experiment')
+            # else, it will append
         
         # save the experiment params to the experiment folder
         exp_params = {
