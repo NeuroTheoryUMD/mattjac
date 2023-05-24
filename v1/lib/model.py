@@ -51,10 +51,34 @@ class NetworkType(Enum):
     readout = 'readout'
     scaffold = 'scaffold'
     
+class RegVal(Enum):
+    d2xt = 'd2xt',
+    d2x = 'd2x',
+    d2t = 'd2t',
+    l1 = 'l1',
+    l2 = 'l2',
+    norm2 = 'norm2',
+    norm = 'norm',
+    pos = 'pos',
+    neg = 'neg',
+    orth = 'orth',
+    bi_t = 'bi_t',
+    glocalx = 'glocalx',
+    glocalt = 'glocalt',
+    localx = 'localx',
+    localt = 'localt',
+    trd = 'trd',
+    local = 'local',
+    glocal = 'glocal',
+    max = 'max',
+    max_filt = 'max_filt',
+    max_space = 'max_space',
+    center = 'center',
+    edge_t = 'edge_t',
+    edge_x = 'edge_x'
+    
 # TODO: make output_norm an enum
 # TODO: make window an enum
-# TODO: make reg_vals enums as well
-
 
 
 # layer
@@ -581,7 +605,7 @@ def _Model_to_NDN(model, verbose):
 
 
 class Model:
-    def __init__(self, output, name='', verbose=False):
+    def __init__(self, output, name='', create_NDN=True, verbose=False):
         self.name = name
         self.NDN = None # set this Model's NDN to None to start
         self.inputs = []
@@ -613,12 +637,16 @@ class Model:
             network.index = idx # set the reversed depth-first index
 
         # create the NDN now
+        if create_NDN:
+            self.NDN = _Model_to_NDN(self, verbose)
+
+    def update_NDN(self, verbose=False):
         self.NDN = _Model_to_NDN(self, verbose)
 
     def update_num_neurons(self, num_neurons, verbose=False):
         self.output.update_num_neurons(num_neurons)
         # update the NDN as well
-        self.NDN = _Model_to_NDN(self, verbose)
+        self.update_NDN()
 
     # prevent the weights from being updated on forward
     def freeze_weights(self, network_names=None):
@@ -632,7 +660,7 @@ class Model:
     # initialize the weights using a new random initialization
     def reinitialize_weights(self, verbose=False):
         # call the NDN create function again to reinitialize the weights
-        self.NDN = _Model_to_NDN(self, verbose)
+        self.update_NDN()
 
     # copy the weights from the previous model into this model
     def use_weights_from(self, other_model, network_names=None):

@@ -1,11 +1,13 @@
+import sys
+sys.path.append('../lib')
 import runner as r
 import model as m
 
 
-def conv_scaffold(num_filters, num_inh_percent, num_iter, reg_vals, kernel_widths, kernel_heights, num_lags):
+def conv_scaffold(num_filters, num_inh_percent, kernel_widths):
     conv_layer0 = m.ConvolutionalLayer(
         num_filters=num_filters[0],
-        num_inh=int(num_filters[0]*num_inh_percent),
+        num_inh=int(num_filters[0]*num_inh_percent[0]),
         filter_dims=kernel_widths[0],
         window='hamming',
         NLtype=m.NL.relu,
@@ -13,19 +15,17 @@ def conv_scaffold(num_filters, num_inh_percent, num_iter, reg_vals, kernel_width
         bias=False,
         initialize_center=True,
         output_norm='batch',
-        reg_vals=reg_vals)
+        reg_vals={'d2xt': r.Sample(0.001, 0.1, num_samples=2), 'center': 0.01, 'bcs': {'d2xt': 1}})
     conv_layer1 = m.ConvolutionalLayer().like(conv_layer0)
     conv_layer1.params['num_filters'] = num_filters[1]
-    conv_layer1.params['num_inh'] = int(num_filters[1]*num_inh_percent)
+    conv_layer1.params['num_inh'] = int(num_filters[1]*num_inh_percent[1])
     conv_layer1.params['filter_dims'] = kernel_widths[1]
-    if 'activity' in reg_vals.keys():
-        conv_layer1.params['reg_vals'] = {'activity': reg_vals['activity']}
+    conv_layer1.params['reg_vals'] = {'d2xt': 0.01, 'center': 0.01, 'bcs': {'d2xt': 1}}
     conv_layer2 = m.ConvolutionalLayer().like(conv_layer0)
     conv_layer2.params['num_filters'] = num_filters[2]
-    conv_layer2.params['num_inh'] = int(num_filters[2]*num_inh_percent)
+    conv_layer2.params['num_inh'] = int(num_filters[2]*num_inh_percent[2])
     conv_layer2.params['filter_dims'] = kernel_widths[2]
-    if 'activity' in reg_vals.keys():
-        conv_layer2.params['reg_vals'] = {'activity': reg_vals['activity']}
+    conv_layer2.params['reg_vals'] = {'d2xt': 0.01, 'center': 0.01, 'bcs': {'d2xt': 1}}
 
     readout_layer0 = m.Layer(
         pos_constraint=True, # because we have inhibitory subunits on the first layer
@@ -33,10 +33,10 @@ def conv_scaffold(num_filters, num_inh_percent, num_iter, reg_vals, kernel_width
         NLtype=m.NL.softplus,
         bias=True,
         initialize_center=True,
-        reg_vals={'glocalx': 0.01}
+        reg_vals={'glocalx': r.Sample(0.01, 0.1, num_samples=2)}
     )
 
-    inp_stim = m.Input(covariate='stim', input_dims=[1,36,1,num_lags])
+    inp_stim = m.Input(covariate='stim', input_dims=[1,36,1,10])
 
     core_net = m.Network(layers=[conv_layer0, conv_layer1, conv_layer2],
                          network_type=m.NetworkType.scaffold,
@@ -49,7 +49,7 @@ def conv_scaffold(num_filters, num_inh_percent, num_iter, reg_vals, kernel_width
     inp_stim.to(core_net)
     core_net.to(readout_net)
     readout_net.to(output_11)
-    return m.Model(output_11, name='cnim_scaffold', verbose=True)
+    return m.Model(output_11, name='cnim_scaffold', create_NDN=False, verbose=True)
 
 
 
@@ -103,7 +103,7 @@ def iter_scaffold(num_filters, num_inh_percent, num_iter, reg_vals, kernel_width
     inp_stim.to(core_net)
     core_net.to(readout_net)
     readout_net.to(output_11)
-    return m.Model(output_11, name='iter_scaffold', verbose=True)
+    return m.Model(output_11, name='iter_scaffold', create_NDN=False, verbose=True)
 
 
 
@@ -155,51 +155,51 @@ def tconv_scaffold(num_filters, num_inh_percent, num_iter, reg_vals, kernel_widt
     inp_stim.to(core_net)
     core_net.to(readout_net)
     readout_net.to(output_11)
-    return m.Model(output_11, name='tconv_scaffold', verbose=True)
+    return m.Model(output_11, name='tconv_scaffold', create_NDN=False, verbose=True)
 
 
 
-def itert_scaffold(num_filters, num_inh_percent, num_iter, reg_vals, kernel_widths, kernel_heights, num_lags):
+def tconv_scaffold_iter():
+    # Temporal Convolutional Scaffold with Iterative Layer
     tconv_layer = m.TemporalConvolutionalLayer(
-        num_filters=num_filters[0],
-        num_inh=int(num_filters[0]*num_inh_percent),
-        filter_dims=[1, kernel_widths[0], 1, num_lags-num_iter],
+        num_filters=8,
+        num_inh=4,
+        filter_dims=[1, 21, 1, 10-3],
         window='hamming',
         NLtype=m.NL.relu,
         norm_type=m.Norm.unit,
         bias=False,
         initialize_center=True,
         output_norm='batch',
-        reg_vals=reg_vals,
+        reg_vals={'activity':r.Sample(0.00001, 0.1), 'd2xt': r.Sample(0.001, 0.1), 'center': r.Sample(0.001, 0.1), 'bcs': {'d2xt': 1}},
         padding='spatial')
-
+    
     itert_layer = m.IterativeTemporalConvolutionalLayer(
-        num_filters=num_filters[1],
-        num_inh=int(num_filters[1]*num_inh_percent),
-        filter_dims=kernel_widths[1],
+        num_filters=8,
+        num_inh=4,
+        filter_dims=21,
+        num_lags=3,
         window='hamming',
         NLtype=m.NL.relu,
         norm_type=m.Norm.unit,
         bias=False,
         initialize_center=True,
         output_norm='batch',
-        num_iter=num_iter,
+        num_iter=3,
         output_config='full',
-        num_lags=2)
-    if 'activity' in reg_vals.keys():
-        itert_layer.params['reg_vals'] = {'activity': reg_vals['activity']}
-
+        reg_vals={'activity':r.Sample(0.00001, 0.1), 'd2xt': r.Sample(0.001, 0.1), 'center': r.Sample(0.001, 0.1), 'bcs': {'d2xt': 1}})
+    
     readout_layer = m.Layer(
         pos_constraint=True, # because we have inhibitory subunits on the first layer
         norm_type=m.Norm.none,
         NLtype=m.NL.softplus,
         bias=True,
         initialize_center=True,
-        reg_vals={'glocalx': 0.01}
+        reg_vals={'glocalx': r.Sample(0.01, 0.1)}
     )
-
-    inp_stim = m.Input(covariate='stim', input_dims=[1,36,1,num_lags])
-
+    
+    inp_stim = m.Input(covariate='stim', input_dims=[1,36,1,10])
+    
     core_net = m.Network(layers=[tconv_layer, itert_layer],
                          network_type=m.NetworkType.scaffold,
                          name='core')
@@ -207,30 +207,19 @@ def itert_scaffold(num_filters, num_inh_percent, num_iter, reg_vals, kernel_widt
                             name='readout')
     # this is set as a starting point, but updated on each iteration
     output_11 = m.Output(num_neurons=11)
-
+    
     inp_stim.to(core_net)
     core_net.to(readout_net)
     readout_net.to(output_11)
-    return m.Model(output_11, name='itert_scaffold', verbose=True)
+    itert_model = m.Model(output_11, name='tconv_scaffold_iter', create_NDN=False, verbose=True)
+    return itert_model
 
 
+trainer_params = r.TrainerParams(max_epochs=1)
 
-hyperparameter_walker = r.HyperparameterWalker(num_filterses=[[8, 8, 8]],
-                                               num_inh_percents=[0.5],
-                                               kernel_widthses=[[21, 11, 5]],
-                                               kernel_heightses=[[3, 3, 3]],
-                                               num_iters=[2],
-                                               reg_valses=[{'activity':0.00001, 'd2xt': 0.01, 'center': 0.01, 'bcs': {'d2xt': 1}}],
-                                               include_MUses=[False],
-                                               is_multiexps=[False],
-                                               batch_sizes=[3000],
-                                               num_lagses=[13])
-
-runner = r.Runner(experiment_name='iter_exps1',
+runner = r.Runner(experiment_name='iter_exps2',
                   dataset_expts=[['expt04']],
-                  model_templates=[tconv_scaffold, itert_scaffold],
-                  #model_templates=[conv_scaffold, iter_scaffold],
-                  hyperparameter_walker=hyperparameter_walker,
-                  num_initializations=1)
+                  model_templates=[conv_scaffold([8, 4, 4], [0.5, 0.5, 0.5], [21, 7, 3])],
+                  trainer_params=trainer_params)
 
-runner.run(overwrite=False)
+runner.run()

@@ -10,6 +10,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import model as mod
+import runner
 from enum import Enum
 # https://docs.python.org/3/library/typing.html
 
@@ -51,6 +52,10 @@ def _load_trial(trial_name, experiment_folder, datadir=None, lazy=True): # lazy=
     # load trial_info
     with open(os.path.join(trial_directory, 'trial_info.pickle'), 'rb') as f:
         trial_info = pickle.load(f)
+        
+    # load hyperparameter_walker
+    with open(os.path.join(trial_directory, 'hyperparameter_walker.pickle'), 'rb') as f:
+        hyperparameter_walker = pickle.load(f)
     
     # set the datadir in the trial_info.dataset_params
     if datadir is not None:
@@ -64,6 +69,7 @@ def _load_trial(trial_name, experiment_folder, datadir=None, lazy=True): # lazy=
     trial = Trial(trial_info=trial_info,
                   model=model,
                   dataset=dataset,
+                  hyperparameter_walker=hyperparameter_walker,
                   eval_function=None)
     # set the results properties so we have access to them
     trial.LLs = LLs
@@ -129,13 +135,17 @@ class TrialInfo:
                  trial_params:dict,
                  dataset_params:dict,
                  dataset_class,
-                 fit_params:dict):
+                 fit_params:dict,
+                 expt_idx:int=None,
+                 model_idx:int=None):
         self.name = name
         self.description = description
         self.trial_params = trial_params
         self.dataset_params = dataset_params
         self.dataset_class = dataset_class
         self.fit_params = fit_params
+        self.expt_idx = expt_idx
+        self.model_idx = model_idx
 
 
 # contains data and model to fit and return log-likelihoods for
@@ -143,6 +153,7 @@ class Trial:
     def __init__(self, 
                  trial_info:TrialInfo,
                  model:mod.Model,
+                 hyperparameter_walker,
                  dataset,
                  eval_function):
         self.name = trial_info.name
@@ -150,6 +161,7 @@ class Trial:
         self.trial_params = trial_info.trial_params
         self.trial_info = trial_info
         self.model = model
+        self.hyperparameter_walker = hyperparameter_walker
         self.eval_function = eval_function # not serialized
         self._dataset = dataset # not serialized
         
@@ -191,7 +203,7 @@ class Trial:
             # get wall clock, number of steps and value for a scalar 'Accuracy'
             loss_w_times, loss_step_nums, loss_losses = zip(*event_acc.Scalars(Loss.loss.value))
             train_w_times, train_step_nums, train_losses = zip(*event_acc.Scalars(Loss.train.value))
-            reg_w_times, reg_step_nums, reg_losses= zip(*event_acc.Scalars(Loss.reg.value))
+            reg_w_times, reg_step_nums, reg_losses = zip(*event_acc.Scalars(Loss.reg.value))
             train_epoch_w_times, train_epoch_step_nums, train_epoch_losses = zip(*event_acc.Scalars(Loss.train_epoch.value))
             val_epoch_times, val_epoch_step_nums, val_epoch_losses = zip(*event_acc.Scalars(Loss.val_epoch.value))
             self._losses = {
@@ -244,6 +256,10 @@ class Trial:
         # save LLs
         with open(os.path.join(self.trial_directory, 'LLs.pickle'), 'wb') as f:
             pickle.dump(list(self.LLs), f)
+            
+        # save hyperparameter_walker
+        with open(os.path.join(self.trial_directory, 'hyperparameter_walker.pickle'), 'wb') as f:
+            pickle.dump(self.hyperparameter_walker, f)
 
     
 class Experiment:
