@@ -1,12 +1,19 @@
 #!/bin/bash
-# this script is used to run the experiment and restart it until it completes
+# This script is used to run the experiment and restart it until it completes
 
 # print a help line if no args are provided
-if [ $# -eq 0 ]
-  then
-    echo "No arguments supplied"
-    echo "Usage: ./run.sh <experiment.py> <experiment_name>"
+if [ $# -lt 2 ]
+then
+    echo "Insufficient arguments supplied"
+    echo "Usage: ./run.sh <experiment.py> <experiment_name> [--overwrite]"
     exit 1
+fi
+
+# if --overwrite flag is set, remove the existing experiment directory
+if [[ $* == *--overwrite* ]]
+then
+    echo "Overwriting the previous experiment: $2"
+    rm -rf "../experiments/$2"
 fi
 
 # loop until the file 'finished' is created

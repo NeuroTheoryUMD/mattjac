@@ -12,8 +12,12 @@ import random
 import itertools as it
 import numpy as np
 
-from torch.utils.data.dataset import Subset
 from enum import Enum
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import Matern
+from scipy.stats import norm
+from scipy.optimize import minimize
+from torch.utils.data.dataset import Subset
 
 # NDN tools
 import NDNT.utils as utils # some other utilities
@@ -44,8 +48,8 @@ HYPER_PARAMETERS = {
 }
 
 class SearchStrategy(Enum):
-    grid_search = 0
-    gradient_descent = 1
+    grid = 0
+    bayes = 1
 
 
 class Sample:
@@ -90,27 +94,31 @@ def get_model_regvals_vals(model, reg_val_keys):
             reg_val_vals.append(model.networks[ni].layers[li].params['reg_vals'][k])
         else:
             reg_val_vals.append(model.networks[ni].layers[li].params['reg_vals'][k][bk])
-    return reg_val_vals
+    return np.array(reg_val_vals).squeeze()
 
 
-class HyperparameterSampler:
-    def __init__(self, model_template, num_samples=2, learning_rate=0.01, max_num_samples=10):
+class HyperparameterBayesianOptimization:
+    def __init__(self, model_template, init_num_samples=2, learning_rate=0.1, max_num_samples=10):
         self.model_template = model_template
-        self.num_samples = num_samples
+        self.init_num_samples = init_num_samples
         self.learning_rate = learning_rate
         self.max_num_samples = max_num_samples
         self.current_idx = 0
         self.models = []
         self.reg_val_keys = []
         reg_val_vals = []
+
+        # Step 1: Build a surrogate probability model of the objective function
+        kernel = Matern()
+        self.gp = GaussianProcessRegressor(kernel=kernel, alpha=1e-6)
         
         # extract the reg_vals (with value as Sample), and put them inside a vector and keep track of the keys
-        self.reg_val_keys, template_reg_val_vals = get_model_regvals(model_template)
+        self.reg_val_keys, self.template_reg_val_vals = get_model_regvals(model_template)
 
         # populate the reg_val_vals with the vals from the model template samples
-        for i in range(num_samples):
+        for i in range(init_num_samples):
             reg_val_val = []
-            for v in template_reg_val_vals:
+            for v in self.template_reg_val_vals:
                 if isinstance(v, Sample):
                     # draw a random sample from the start and end values
                     reg_val_val.append(np.random.uniform(v.start, v.end, 1))
@@ -120,22 +128,36 @@ class HyperparameterSampler:
         for reg_val_val in reg_val_vals:
             self.add_model_with_reg_vals(reg_val_val)
 
-    
     def update_models(self, prev_trials):
-        # get best and worst models based on the previous trials np.mean(trial.LLs))
-        best_model = prev_trials[np.argmax([np.mean(trial.LLs) for trial in prev_trials])].model
-        worst_model = prev_trials[np.argmin([np.mean(trial.LLs) for trial in prev_trials])].model
-        
-        # get the reg_val_vals from the best and worst models
-        best_model_reg_val_vals = get_model_regvals_vals(best_model, self.reg_val_keys)
-        worst_model_reg_val_vals = get_model_regvals_vals(worst_model, self.reg_val_keys)
-        
-        # populate the self.reg_val_vals with the best reg_val_vals plus a small amount in the direction of the gradient
-        reg_val_val = []
-        for i in range(len(self.reg_val_keys)):
-            reg_val_val.append(best_model_reg_val_vals[i] + self.learning_rate * (best_model_reg_val_vals[i] - worst_model_reg_val_vals[i]))
-        self.add_model_with_reg_vals(reg_val_val)
+        # Retrieve hyperparameters and performances of previous trials
+        X = np.array([get_model_regvals_vals(trial.model, self.reg_val_keys) for trial in prev_trials])
+        y = np.array([np.mean(trial.LLs) for trial in prev_trials])
     
+        self.gp.fit(X, y)
+    
+        # Define the acquisition function (Expected Improvement)
+        def acquisition(x):
+            mu, sigma = self.gp.predict(x.reshape(1, -1), return_std=True)
+            if sigma == 0:
+                return -np.inf
+            else:
+                gamma = (mu - np.max(y)) / sigma
+                return -1 * (mu - np.max(y)) - 0.01 * (sigma * (norm.cdf(gamma) + gamma * norm.pdf(gamma)))
+    
+        # Step 2: Find the hyperparameters that perform best on the surrogate
+        bounds = [(v.start, v.end) for v in self.template_reg_val_vals]
+        res = minimize(acquisition, x0=np.random.uniform([b[0] for b in bounds], [b[1] for b in bounds]), bounds=bounds, method='L-BFGS-B')
+    
+        # Step 3: Apply these hyperparameters to the true objective function is done outside this function
+        # Step 4: Update the surrogate model incorporating the new results
+        # This is done automatically as we refit the Gaussian Process with new data at each iteration
+    
+        # The new model's hyperparameters
+        reg_val_val = res.x
+    
+        # add the new model
+        self.add_model_with_reg_vals(reg_val_val)
+
     def add_model_with_reg_vals(self, reg_val_vals):
         model = copy.deepcopy(self.model_template)
         update_model_regvals(model, self.reg_val_keys, reg_val_vals)
@@ -145,22 +167,23 @@ class HyperparameterSampler:
         return self.current_idx < self.max_num_samples
 
     def get_next(self, prev_trials):
+        print('length of prev_trials: ', len(prev_trials))
         # update the models with the previous trials
-        if prev_trials is not None and len(prev_trials) >= self.num_samples:
+        if len(prev_trials) >= self.init_num_samples:
             self.update_models(prev_trials)
         
         # return the next model
+        print('models length: ', len(self.models), ' current_idx: ', self.current_idx)
         model = self.models[self.current_idx]
         self.current_idx += 1
         return model
-    
-        
+
 
 # The hyperparameter walker should focus on walking over reg vals and optimizer params
 # the model templates can be defined in advance and the runner should not care about how the models are structured
 # as there are too many different ways to structure the models,
 # and it is not worth the effort to make the runner flexible enough to handle all of them.
-class HyperparameterWalker:
+class HyperparameterGridSearch:
     def __init__(self, model_template):
         self.current_idx = 0
         self.models = []
@@ -247,7 +270,7 @@ class Runner:
                  experiment_name,
                  dataset_expts,
                  model_templates,
-                 search_strategy=SearchStrategy.grid_search,
+                 search_strategy=SearchStrategy.grid,
                  trainer_params=TrainerParams(),
                  experiment_desc='',
                  experiment_location='../experiments/',
@@ -280,25 +303,23 @@ class Runner:
                 return
             # check the experiment folder for existing trials, and get the latest trial number
             try:
-                existing_experiment = exp.load(self.experiment_name, experiment_location=self.experiment_location, datadir=self.datadir)
-                latest_trial = existing_experiment.trials[-1]
+                self.experiment = exp.load(self.experiment_name, experiment_location=self.experiment_location, datadir=self.datadir)
+                # populate the generate_trial function, since it is not serialized
+                self.experiment.generate_trial = lambda prev_trials: self.generate_trial(prev_trials)
+                latest_trial = self.experiment.trials[-1]
                 # set the current trial index to the last trial index of the existing experiment + 1
                 self.initial_trial_idx = latest_trial.trial_info.trial_params['trial_idx'] + 1
                 self.hyperparameter_walker = latest_trial.hyperparameter_walker
-                # increment the current_idx of the hyperparameter walker by 1
-                self.hyperparameter_walker.current_idx += 1
                 self.expt_idx = latest_trial.trial_info.expt_idx
                 self.model_idx = latest_trial.trial_info.model_idx
             except ValueError:
                 # no existing experiment found
-                pass
-
-        # make the experiment
-        self.experiment = exp.Experiment(name=self.experiment_name,
-                                    description=self.experiment_desc,
-                                    generate_trial=lambda prev_trials: self.generate_trial(prev_trials),
-                                    experiment_location=self.experiment_location,
-                                    overwrite=self.overwrite_mode)
+                # make the experiment
+                self.experiment = exp.Experiment(name=self.experiment_name,
+                                            description=self.experiment_desc,
+                                            generate_trial=lambda prev_trials: self.generate_trial(prev_trials),
+                                            experiment_location=self.experiment_location,
+                                            overwrite=self.overwrite_mode)
 
 
     def generate_trial(self, prev_trials):
@@ -308,10 +329,10 @@ class Runner:
         for model_template in self.model_templates[model_idx:]:
             for expt in self.dataset_expts[expt_idx:]:
                 if self.hyperparameter_walker is None:
-                    if self.search_strategy == SearchStrategy.grid_search:
-                        hyperparameter_walker = HyperparameterWalker(model_template)
-                    elif self.search_strategy == SearchStrategy.gradient_descent:
-                        hyperparameter_walker = HyperparameterSampler(model_template)
+                    if self.search_strategy == SearchStrategy.grid:
+                        hyperparameter_walker = HyperparameterGridSearch(model_template)
+                    elif self.search_strategy == SearchStrategy.bayes:
+                        hyperparameter_walker = HyperparameterBayesianOptimization(model_template)
                 else:
                     hyperparameter_walker = self.hyperparameter_walker
                     print('Using existing hyperparameter walker, Models left:', len(hyperparameter_walker.models) - hyperparameter_walker.current_idx)

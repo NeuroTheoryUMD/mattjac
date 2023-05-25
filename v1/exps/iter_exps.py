@@ -159,26 +159,26 @@ def tconv_scaffold(num_filters, num_inh_percent, num_iter, reg_vals, kernel_widt
 
 
 
-def tconv_scaffold_iter():
+def tconv_scaffold_iter(num_lags):
     # Temporal Convolutional Scaffold with Iterative Layer
     tconv_layer = m.TemporalConvolutionalLayer(
         num_filters=8,
         num_inh=4,
-        filter_dims=[1, 21, 1, 10-3],
+        filter_dims=[1, 21, 1, 11],
         window='hamming',
         NLtype=m.NL.relu,
         norm_type=m.Norm.unit,
         bias=False,
         initialize_center=True,
         output_norm='batch',
-        reg_vals={'activity':r.Sample(0.00001, 0.1), 'd2xt': r.Sample(0.001, 0.1), 'center': r.Sample(0.001, 0.1), 'bcs': {'d2xt': 1}},
+        reg_vals={'d2xt': r.Sample(0.001, 0.1), 'center': r.Sample(0.001, 0.1), 'bcs': {'d2xt': 1}},
         padding='spatial')
     
     itert_layer = m.IterativeTemporalConvolutionalLayer(
         num_filters=8,
         num_inh=4,
-        filter_dims=21,
-        num_lags=3,
+        filter_dims=11,
+        num_lags=2,
         window='hamming',
         NLtype=m.NL.relu,
         norm_type=m.Norm.unit,
@@ -187,7 +187,7 @@ def tconv_scaffold_iter():
         output_norm='batch',
         num_iter=3,
         output_config='full',
-        reg_vals={'activity':r.Sample(0.00001, 0.1), 'd2xt': r.Sample(0.001, 0.1), 'center': r.Sample(0.001, 0.1), 'bcs': {'d2xt': 1}})
+        reg_vals={'activity':r.Sample(0.0001, 0.01), 'd2xt': r.Sample(0.001, 0.1), 'center': r.Sample(0.001, 0.1), 'bcs': {'d2xt': 1}})
     
     readout_layer = m.Layer(
         pos_constraint=True, # because we have inhibitory subunits on the first layer
@@ -198,7 +198,7 @@ def tconv_scaffold_iter():
         reg_vals={'glocalx': r.Sample(0.01, 0.1)}
     )
     
-    inp_stim = m.Input(covariate='stim', input_dims=[1,36,1,10])
+    inp_stim = m.Input(covariate='stim', input_dims=[1,36,1,num_lags])
     
     core_net = m.Network(layers=[tconv_layer, itert_layer],
                          network_type=m.NetworkType.scaffold,
@@ -215,13 +215,13 @@ def tconv_scaffold_iter():
     return itert_model
 
 
-trainer_params = r.TrainerParams()
+trainer_params = r.TrainerParams(num_lags=14, max_epochs=1)
 
-runner = r.Runner(experiment_name='iter_exps2',
+runner = r.Runner(experiment_name='iter_exps01',
                   dataset_expts=[['expt04']],
-                  model_templates=[conv_scaffold([8, 4, 4], [0.5, 0.5, 0.5], [21, 7, 3])],
+                  #model_templates=[conv_scaffold([8, 4, 4], [0.5, 0.5, 0.5], [21, 7, 3])],
+                  model_templates=[tconv_scaffold_iter(num_lags=14)],
                   trainer_params=trainer_params,
-                  search_strategy=r.SearchStrategy.gradient_descent,
-                  overwrite=False)
+                  search_strategy=r.SearchStrategy.grid)
 
 runner.run()

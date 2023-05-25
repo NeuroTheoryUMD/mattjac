@@ -93,7 +93,7 @@ def load(expname, experiment_location, datadir=None, lazy=True): # load experime
                             generate_trial=None,
                             experiment_location=experiment_location,
                             datadir=datadir,
-                            overwrite=Overwrite.none)
+                            overwrite=Overwrite.append)
     
     # loop over trials in folder and deserialize them into Trial objects
     trials = []
@@ -304,8 +304,17 @@ class Experiment:
             pickle.dump(exp_params, f)
         
         # for each Trial
+        # TODO: this is terrible bad, 
+        #       need to fix the way trials as stored 
+        #       and separate out the dataframe from the list of trials 
+        try:
+            trials = self.trials.tolist() # convert numpy array to list
+            print('self.trials: ', trials)
+        except:
+            trials = []
+            print('trials: ', trials)
         # pass in the previous trials into the next one
-        trials = []
+        print('fn', self.generate_trial)
         for trial in self.generate_trial(trials):
             assert trial is not None, 'generate_trial() callback must return a valid trial'
             trial.run(device, self.experiment_folder)
