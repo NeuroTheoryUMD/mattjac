@@ -13,6 +13,7 @@ import itertools as it
 import numpy as np
 
 from torch.utils.data.dataset import Subset
+from enum import Enum
 
 # NDN tools
 import NDNT.utils as utils # some other utilities
@@ -42,6 +43,11 @@ HYPER_PARAMETERS = {
     "early_stopping_patience": [4]
 }
 
+class SearchStrategy(Enum):
+    grid_search = 0
+    gradient_descent = 1
+
+
 class Sample:
     def __init__(self, start, end, num_samples=3):
         self.start = start
@@ -49,15 +55,118 @@ class Sample:
         self.num_samples = num_samples
 
 
+def update_model_regvals(model, reg_vals_keys, reg_vals_vals):
+    for idx, key in enumerate(reg_vals_keys):
+        ni, li, k, bk = key
+        if bk is None:  # handle the general case
+            model.networks[ni].layers[li].params['reg_vals'][k] = reg_vals_vals[idx]
+        else:  # handle the boundary condition special case
+            model.networks[ni].layers[li].params['reg_vals'][k][bk] = reg_vals_vals[idx]
+            
+def get_model_regvals(model_template):
+    # extract the reg_vals (with value as Sample), and put them inside a vector and keep track of the keys
+    reg_val_keys = []
+    reg_val_vals = []
+    for ni, network in enumerate(model_template.networks):
+        for li, layer in enumerate(network.layers):
+            for k, v in layer.params['reg_vals'].items():
+                if isinstance(v, Sample): # handle the general case
+                    reg_val_keys.append((ni, li, k, None))
+                    reg_val_vals.append(v)
+                elif isinstance(v, dict): # handle the boundary condition special case
+                    for bk, bv in v.items():
+                        if isinstance(bv, Sample):
+                            reg_val_keys.append((ni, li, k, bk))
+                            reg_val_vals.append(bv)
+    return reg_val_keys, reg_val_vals
+
+
+def get_model_regvals_vals(model, reg_val_keys):
+    # get the reg_vals_vals from the model given the reg_val_keys
+    reg_val_vals = []
+    for idx, key in enumerate(reg_val_keys):
+        ni, li, k, bk = key
+        if bk is None:
+            reg_val_vals.append(model.networks[ni].layers[li].params['reg_vals'][k])
+        else:
+            reg_val_vals.append(model.networks[ni].layers[li].params['reg_vals'][k][bk])
+    return reg_val_vals
+
+
+class HyperparameterSampler:
+    def __init__(self, model_template, num_samples=2, learning_rate=0.01, max_num_samples=10):
+        self.model_template = model_template
+        self.num_samples = num_samples
+        self.learning_rate = learning_rate
+        self.max_num_samples = max_num_samples
+        self.current_idx = 0
+        self.models = []
+        self.reg_val_keys = []
+        reg_val_vals = []
+        
+        # extract the reg_vals (with value as Sample), and put them inside a vector and keep track of the keys
+        self.reg_val_keys, template_reg_val_vals = get_model_regvals(model_template)
+
+        # populate the reg_val_vals with the vals from the model template samples
+        for i in range(num_samples):
+            reg_val_val = []
+            for v in template_reg_val_vals:
+                if isinstance(v, Sample):
+                    # draw a random sample from the start and end values
+                    reg_val_val.append(np.random.uniform(v.start, v.end, 1))
+            reg_val_vals.append(reg_val_val)
+
+        # create the initial models
+        for reg_val_val in reg_val_vals:
+            self.add_model_with_reg_vals(reg_val_val)
+
+    
+    def update_models(self, prev_trials):
+        # get best and worst models based on the previous trials np.mean(trial.LLs))
+        best_model = prev_trials[np.argmax([np.mean(trial.LLs) for trial in prev_trials])].model
+        worst_model = prev_trials[np.argmin([np.mean(trial.LLs) for trial in prev_trials])].model
+        
+        # get the reg_val_vals from the best and worst models
+        best_model_reg_val_vals = get_model_regvals_vals(best_model, self.reg_val_keys)
+        worst_model_reg_val_vals = get_model_regvals_vals(worst_model, self.reg_val_keys)
+        
+        # populate the self.reg_val_vals with the best reg_val_vals plus a small amount in the direction of the gradient
+        reg_val_val = []
+        for i in range(len(self.reg_val_keys)):
+            reg_val_val.append(best_model_reg_val_vals[i] + self.learning_rate * (best_model_reg_val_vals[i] - worst_model_reg_val_vals[i]))
+        self.add_model_with_reg_vals(reg_val_val)
+    
+    def add_model_with_reg_vals(self, reg_val_vals):
+        model = copy.deepcopy(self.model_template)
+        update_model_regvals(model, self.reg_val_keys, reg_val_vals)
+        self.models.append(model)
+
+    def has_next(self):
+        return self.current_idx < self.max_num_samples
+
+    def get_next(self, prev_trials):
+        # update the models with the previous trials
+        if prev_trials is not None and len(prev_trials) >= self.num_samples:
+            self.update_models(prev_trials)
+        
+        # return the next model
+        model = self.models[self.current_idx]
+        self.current_idx += 1
+        return model
+    
+        
+
 # The hyperparameter walker should focus on walking over reg vals and optimizer params
 # the model templates can be defined in advance and the runner should not care about how the models are structured
 # as there are too many different ways to structure the models,
 # and it is not worth the effort to make the runner flexible enough to handle all of them.
 class HyperparameterWalker:
-    def __init__(self, model_template, prev_trials):
+    def __init__(self, model_template):
         self.current_idx = 0
         self.models = []
 
+        # walk over the network, extract the reg_vals (with value as Sample), and put them inside a 
+        # flat list with the network, layer, param name and the reg_val
         # walk over the network, extract the reg_vals (with value as Sample), and put them inside a 
         # flat list with the network, layer, param name and the reg_val
         reg_vals_keys = []
@@ -80,7 +189,7 @@ class HyperparameterWalker:
                         else:
                             reg_vals_keys.append((ni, li, k, None))
                             reg_vals_vals.append([v]) # just copy the value over as a list
-
+        
         # get the combinations of reg_vals
         grid_search = it.product(*reg_vals_vals)
 
@@ -100,10 +209,13 @@ class HyperparameterWalker:
 
         print('Total number of models:', len(self.models))
 
-    def walk(self):
-        while self.current_idx < len(self.models):
-            yield self.models[self.current_idx]
-            self.current_idx += 1
+    def has_next(self):
+        return self.current_idx < len(self.models)
+
+    def get_next(self, prev_trials):
+        model = self.models[self.current_idx]
+        self.current_idx += 1
+        return model
 
 
 class TrainerParams:
@@ -135,6 +247,7 @@ class Runner:
                  experiment_name,
                  dataset_expts,
                  model_templates,
+                 search_strategy=SearchStrategy.grid_search,
                  trainer_params=TrainerParams(),
                  experiment_desc='',
                  experiment_location='../experiments/',
@@ -143,6 +256,7 @@ class Runner:
         self.experiment_name = experiment_name
         self.dataset_expts = dataset_expts
         self.model_templates = model_templates
+        self.search_strategy = search_strategy
         self.trainer_params = trainer_params
         self.experiment_desc = experiment_desc
         self.experiment_location = experiment_location
@@ -194,11 +308,15 @@ class Runner:
         for model_template in self.model_templates[model_idx:]:
             for expt in self.dataset_expts[expt_idx:]:
                 if self.hyperparameter_walker is None:
-                    hyperparameter_walker = HyperparameterWalker(model_template, prev_trials)
+                    if self.search_strategy == SearchStrategy.grid_search:
+                        hyperparameter_walker = HyperparameterWalker(model_template)
+                    elif self.search_strategy == SearchStrategy.gradient_descent:
+                        hyperparameter_walker = HyperparameterSampler(model_template)
                 else:
                     hyperparameter_walker = self.hyperparameter_walker
                     print('Using existing hyperparameter walker, Models left:', len(hyperparameter_walker.models) - hyperparameter_walker.current_idx)
-                for model in hyperparameter_walker.walk():
+                while hyperparameter_walker.has_next():
+                    model = hyperparameter_walker.get_next(prev_trials)
                     fit_pars = utils.create_optimizer_params(
                         optimizer_type='AdamW',
                         num_workers=0,

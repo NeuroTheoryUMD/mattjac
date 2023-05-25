@@ -215,11 +215,13 @@ def tconv_scaffold_iter():
     return itert_model
 
 
-trainer_params = r.TrainerParams(max_epochs=1)
+trainer_params = r.TrainerParams()
 
 runner = r.Runner(experiment_name='iter_exps2',
                   dataset_expts=[['expt04']],
                   model_templates=[conv_scaffold([8, 4, 4], [0.5, 0.5, 0.5], [21, 7, 3])],
-                  trainer_params=trainer_params)
+                  trainer_params=trainer_params,
+                  search_strategy=r.SearchStrategy.gradient_descent,
+                  overwrite=False)
 
 runner.run()

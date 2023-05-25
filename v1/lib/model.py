@@ -736,3 +736,9 @@ class Model:
 
         # draw graph
         nx.draw_networkx(g, with_labels=True)
+
+    def print_params(self, key):
+        for network in self.networks:
+            print(network.name)
+            for li, layer in enumerate(network.layers):
+                print(li, layer.params[key])
