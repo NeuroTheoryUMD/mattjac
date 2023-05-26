@@ -103,6 +103,7 @@ class HyperparameterBayesianOptimization:
         self.init_num_samples = init_num_samples
         self.learning_rate = learning_rate
         self.max_num_samples = max_num_samples
+        self.len_prev_trials = -1
         self.current_idx = 0
         self.models = []
         self.reg_val_keys = []
@@ -167,9 +168,10 @@ class HyperparameterBayesianOptimization:
         return self.current_idx < self.max_num_samples
 
     def get_next(self, prev_trials):
-        print('length of prev_trials: ', len(prev_trials))
+        self.len_prev_trials += 1
+        print('length of prev_trials: ', self.len_prev_trials)
         # update the models with the previous trials
-        if len(prev_trials) >= self.init_num_samples:
+        if self.len_prev_trials >= self.init_num_samples:
             self.update_models(prev_trials)
         
         # return the next model
@@ -185,6 +187,7 @@ class HyperparameterBayesianOptimization:
 # and it is not worth the effort to make the runner flexible enough to handle all of them.
 class HyperparameterGridSearch:
     def __init__(self, model_template):
+        self.len_prev_trials = -1
         self.current_idx = 0
         self.models = []
 
@@ -236,6 +239,7 @@ class HyperparameterGridSearch:
         return self.current_idx < len(self.models)
 
     def get_next(self, prev_trials):
+        self.len_prev_trials += 1
         model = self.models[self.current_idx]
         self.current_idx += 1
         return model
@@ -250,9 +254,11 @@ class TrainerParams:
                  learning_rate=0.01,
                  weight_decay=0.1,
                  early_stopping_patience=4,
-                 device = torch.device("cuda:1"),
+                 device="cuda:1",
                  include_MUs=False,
-                 is_multiexp=False):
+                 is_multiexp=False,
+                 bayes_init_num_samples=2,
+                 bayes_max_num_samples=10):
         self.batch_size = batch_size
         self.num_lags = num_lags
         self.num_initializations = num_initializations
@@ -260,9 +266,11 @@ class TrainerParams:
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
         self.early_stopping_patience = early_stopping_patience
-        self.device = device
+        self.device = torch.device(device)
         self.include_MUs = include_MUs
         self.is_multiexp = is_multiexp
+        self.bayes_init_num_samples = bayes_init_num_samples
+        self.bayes_max_num_samples = bayes_max_num_samples
 
 
 class Runner:
@@ -324,20 +332,38 @@ class Runner:
 
     def generate_trial(self, prev_trials):
         trial_idx = self.initial_trial_idx
-        expt_idx = self.expt_idx
+        expt_idx = self.expt_idx # NOTE: this will break recovery if we want to try different numbers of experiments
         model_idx = self.model_idx
         for model_template in self.model_templates[model_idx:]:
+            print('Model:', model_template.name, self.hyperparameter_walker)
+            expt_idx = 0 # reset the expt_idx
             for expt in self.dataset_expts[expt_idx:]:
+                print('HERE1')
+                # TODO: this is a terrible hack,
+                #       move this into the experiment and refactor the relationship between experiment and runner
+                model_expt_prev_trials = []
+                init_prev_trial_len = len(prev_trials)
+                
                 if self.hyperparameter_walker is None:
+                    print('HERE')
                     if self.search_strategy == SearchStrategy.grid:
                         hyperparameter_walker = HyperparameterGridSearch(model_template)
                     elif self.search_strategy == SearchStrategy.bayes:
-                        hyperparameter_walker = HyperparameterBayesianOptimization(model_template)
+                        hyperparameter_walker = HyperparameterBayesianOptimization(model_template,
+                                                   init_num_samples=self.trainer_params.bayes_init_num_samples,
+                                                   max_num_samples=self.trainer_params.bayes_max_num_samples)
                 else:
                     hyperparameter_walker = self.hyperparameter_walker
-                    print('Using existing hyperparameter walker, Models left:', len(hyperparameter_walker.models) - hyperparameter_walker.current_idx)
+                    if self.hyperparameter_walker.len_prev_trials > 0:
+                        model_expt_prev_trials.extend(prev_trials[:-self.hyperparameter_walker.len_prev_trials])
+                    print('Using existing hyperparameter walker, Models left:',
+                          len(hyperparameter_walker.models) - hyperparameter_walker.current_idx)
                 while hyperparameter_walker.has_next():
-                    model = hyperparameter_walker.get_next(prev_trials)
+                    if len(prev_trials) > init_prev_trial_len:
+                        # if there are new trials, add them to the model_expt_prev_trials
+                        model_expt_prev_trials.append(prev_trials[-1])
+                    
+                    model = hyperparameter_walker.get_next(model_expt_prev_trials)
                     fit_pars = utils.create_optimizer_params(
                         optimizer_type='AdamW',
                         num_workers=0,
@@ -397,6 +423,8 @@ class Runner:
                                       eval_function=lambda model,dataset,device: model.NDN.eval_models(Subset(dataset, dataset.val_inds), null_adjusted=True))
                     yield trial
                     trial_idx += 1
+                # reset the hyperparameter_walker before moving to the next experiment or model_template
+                self.hyperparameter_walker = None
                 expt_idx += 1
             model_idx += 1
 

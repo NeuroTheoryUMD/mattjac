@@ -52,10 +52,6 @@ def _load_trial(trial_name, experiment_folder, datadir=None, lazy=True): # lazy=
     # load trial_info
     with open(os.path.join(trial_directory, 'trial_info.pickle'), 'rb') as f:
         trial_info = pickle.load(f)
-        
-    # load hyperparameter_walker
-    with open(os.path.join(trial_directory, 'hyperparameter_walker.pickle'), 'rb') as f:
-        hyperparameter_walker = pickle.load(f)
     
     # set the datadir in the trial_info.dataset_params
     if datadir is not None:
@@ -69,7 +65,7 @@ def _load_trial(trial_name, experiment_folder, datadir=None, lazy=True): # lazy=
     trial = Trial(trial_info=trial_info,
                   model=model,
                   dataset=dataset,
-                  hyperparameter_walker=hyperparameter_walker,
+                  hyperparameter_walker=trial_directory, # TODO: don't do this
                   eval_function=None)
     # set the results properties so we have access to them
     trial.LLs = LLs
@@ -114,7 +110,7 @@ def load(expname, experiment_location, datadir=None, lazy=True): # load experime
         try:
             trial = _load_trial(trial_name=trial_name, 
                                 experiment_folder=experiment_folder, 
-                                datadir=datadir, 
+                                datadir=datadir,  
                                 lazy=lazy)
         except Exception as e:
             print("Error loading trial", trial_name, "...skipping")
@@ -161,7 +157,7 @@ class Trial:
         self.trial_params = trial_info.trial_params
         self.trial_info = trial_info
         self.model = model
-        self.hyperparameter_walker = hyperparameter_walker
+        self._hyperparameter_walker = hyperparameter_walker
         self.eval_function = eval_function # not serialized
         self._dataset = dataset # not serialized
         
@@ -217,6 +213,16 @@ class Trial:
     
     # define property to allow lazy loading
     dataset = property(_get_dataset)
+    
+    # define hyperparameter walker property to allow lazy loading
+    def _get_hyperparameter_walker(self):
+        if isinstance(self._hyperparameter_walker, str): # the _hyperparameter_walker is a filename
+            with open(os.path.join(self._hyperparameter_walker, 'hyperparameter_walker.pickle'), 'rb') as f:
+                self._hyperparameter_walker = pickle.load(f)
+        return self._hyperparameter_walker
+
+    # define property to allow lazy loading
+    hyperparameter_walker = property(_get_hyperparameter_walker)
 
     def run(self, device, experiment_folder):
         self.trial_directory = os.path.join(experiment_folder, self.trial_info.name)
@@ -304,7 +310,7 @@ class Experiment:
             pickle.dump(exp_params, f)
         
         # for each Trial
-        # TODO: this is terrible bad, 
+        # TODO: this is terribly bad, 
         #       need to fix the way trials as stored 
         #       and separate out the dataframe from the list of trials 
         try:
@@ -416,7 +422,7 @@ class Experiment:
         
         # concatenate the individual DFs
         self._trials = pd.concat(dfs)
-        self._trials = self.trials_df.sort_values(by='name') # sort alphabetically by name
+        self._trials = self.trials_df.sort_values(by='trial_idx') # sort numerically by trial_idx
     
     def _get_trials_df(self):
         return self._trials

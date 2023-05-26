@@ -16,9 +16,23 @@ then
     rm -rf "../experiments/$2"
 fi
 
-# loop until the file 'finished' is created
-while [ ! -f "../experiments/$2/finished" ]
+# set the maximum number of iterations
+max_iterations=10
+
+# initialize counter
+counter=0
+
+# loop until the file 'finished' is created or max_iterations is reached
+while [[ ! -f "../experiments/$2/finished" ]] && [[ $counter -lt $max_iterations ]]
 do
+    # increment the counter
+    ((counter++))
+    
     # run the experiment
     python $1
 done
+
+if [[ $counter -eq $max_iterations ]]
+then
+    echo "Maximum number of iterations reached."
+fi
