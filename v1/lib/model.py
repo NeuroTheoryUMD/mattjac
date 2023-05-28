@@ -294,7 +294,8 @@ class IterativeConvolutionalLayer:
 
 class TemporalConvolutionalLayer:
     def __init__(self,
-                 filter_dims=None,
+                 filter_width=None,
+                 num_lags=None,
                  window=None,
                  padding='spatial', # default in the NDN
                  num_filters=None,
@@ -307,8 +308,10 @@ class TemporalConvolutionalLayer:
                  output_norm=None,
                  pos_constraint=False,
                  temporal_tent_spacing:int=None):
+        
         self.params = _convert_params(internal_layer_type=TconvLayer,
-                                      filter_dims=filter_dims,
+                                      filter_width=filter_width,
+                                      num_lags=num_lags,
                                       window=window,
                                       padding=padding,
                                       num_filters=num_filters,
@@ -402,6 +405,7 @@ class Input: # holds the input info
     def to(self, network):
         # set the input_dims of the network to be the desired Input.input_dims
         network.input_covariate = self.covariate
+        print('input_dims', self.input_dims)
         network.layers[0].params['input_dims'] = self.input_dims
         self.output = network
         network.inputs.append(self)
@@ -564,6 +568,23 @@ def _Network_to_FFnetwork(network):
             # skip internal params
             if not 'internal' in k:
                 sanitized_layer_params[k] = v
+
+        # TODO: this is a hack, if we have too many of these,
+        # we should refactor this to be more general
+        # special case if the layer is a TemporalConvolutionalLayer
+        print('LAYER TYPE', layer_type)
+        if layer_type == convlayers.TconvLayer:
+            print('MODIFYING TemporalConvolutionalLayer')
+            # convert 1D filter dims to 2D filter dims for the NDN
+            # for the TconvLayer only, not for the IterTconvLayer
+            sanitized_layer_params['filter_dims'] = [1, sanitized_layer_params['filter_width'], 1, sanitized_layer_params['num_lags']]
+            sanitized_layer_params['num_lags'] = None
+            # remove the filter_width from the sanitized_layer_params
+            del sanitized_layer_params['filter_width']
+            # remove the num_lags from the sanitized_layer_params
+            del sanitized_layer_params['num_lags']
+
+        print('sanitized_layer_params', sanitized_layer_params)
 
         layer_dict = layer_type.layer_dict(**sanitized_layer_params)
         # NDN has a bug where certain parameters don't get copied over from the constructor
@@ -741,4 +762,7 @@ class Model:
         for network in self.networks:
             print(network.name)
             for li, layer in enumerate(network.layers):
-                print(li, layer.params[key])
+                if key in layer.params:
+                    print(li, layer.params[key])
+                else:
+                    print(li, 'None')

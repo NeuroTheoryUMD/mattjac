@@ -17,7 +17,8 @@ then
 fi
 
 # set the maximum number of iterations
-max_iterations=10
+max_iterations=100
+sleep_time=10 # seconds
 
 # initialize counter
 counter=0
@@ -30,6 +31,9 @@ do
     
     # run the experiment
     python $1
+    
+    # sleep for 5 seconds
+    sleep $sleep_time
 done
 
 if [[ $counter -eq $max_iterations ]]

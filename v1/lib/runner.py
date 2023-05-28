@@ -1,5 +1,4 @@
 # collect common experiment running code here
-
 import sys
 sys.path.insert(0, '../lib')
 sys.path.insert(0, '../')
@@ -32,25 +31,14 @@ import experiment as exp
 
 # common hyperparameters to use across all models
 HYPER_PARAMETERS = {
-    "num_filterses": None,
-    "num_inh_percents": None,
-    "kernel_widthses": None,
-    "kernel_heightses": None,
-    "num_iters": None,
-    "reg_valses": None,
-    "include_MUses": None,
-    "is_multiexps": None,
-    "batch_sizes": None,
-    "num_lagses": None,
-    "learning_rate": [0.01],
-    "weight_decay": [0.1],
-    "early_stopping_patience": [4]
-}
-
 class SearchStrategy(Enum):
     grid = 0
     bayes = 1
 
+
+class ValueList:
+    def __init__(self, values):
+        self.values = values
 
 class Sample:
     def __init__(self, start, end, num_samples=3):
@@ -66,7 +54,7 @@ def update_model_regvals(model, reg_vals_keys, reg_vals_vals):
             model.networks[ni].layers[li].params['reg_vals'][k] = reg_vals_vals[idx]
         else:  # handle the boundary condition special case
             model.networks[ni].layers[li].params['reg_vals'][k][bk] = reg_vals_vals[idx]
-            
+
 def get_model_regvals(model_template):
     # extract the reg_vals (with value as Sample), and put them inside a vector and keep track of the keys
     reg_val_keys = []
@@ -74,14 +62,16 @@ def get_model_regvals(model_template):
     for ni, network in enumerate(model_template.networks):
         for li, layer in enumerate(network.layers):
             for k, v in layer.params['reg_vals'].items():
-                if isinstance(v, Sample): # handle the general case
+                # if the value is a dict, then it is a boundary condition
+                if isinstance(v, dict):
+                    for bk, bv in v.items():
+                        reg_val_keys.append((ni, li, k, bk))
+                        reg_val_vals.append(bv)
+                else:
+                    # add the key and value to the list
                     reg_val_keys.append((ni, li, k, None))
                     reg_val_vals.append(v)
-                elif isinstance(v, dict): # handle the boundary condition special case
-                    for bk, bv in v.items():
-                        if isinstance(bv, Sample):
-                            reg_val_keys.append((ni, li, k, bk))
-                            reg_val_vals.append(bv)
+
     return reg_val_keys, reg_val_vals
 
 
@@ -112,7 +102,7 @@ class HyperparameterBayesianOptimization:
         # Step 1: Build a surrogate probability model of the objective function
         kernel = Matern()
         self.gp = GaussianProcessRegressor(kernel=kernel, alpha=1e-6)
-        
+
         # extract the reg_vals (with value as Sample), and put them inside a vector and keep track of the keys
         self.reg_val_keys, self.template_reg_val_vals = get_model_regvals(model_template)
 
@@ -125,6 +115,19 @@ class HyperparameterBayesianOptimization:
                     reg_val_val.append(np.random.uniform(v.start, v.end, 1))
             reg_val_vals.append(reg_val_val)
 
+        # now handle the ValueList case
+        num_fixed_vals = None
+        for v in self.template_reg_val_vals:
+            if isinstance(v, ValueList):
+                if num_fixed_vals is None:
+                    num_fixed_vals = len(v.values)
+                else:
+                    assert num_fixed_vals == len(v.values), "All ValueList must have the same number of values"
+                # add all the values in the ValueList
+                reg_val_vals.extend(v.values)
+            else:
+                reg_val_vals.append(v)
+
         # create the initial models
         for reg_val_val in reg_val_vals:
             self.add_model_with_reg_vals(reg_val_val)
@@ -133,9 +136,9 @@ class HyperparameterBayesianOptimization:
         # Retrieve hyperparameters and performances of previous trials
         X = np.array([get_model_regvals_vals(trial.model, self.reg_val_keys) for trial in prev_trials])
         y = np.array([np.mean(trial.LLs) for trial in prev_trials])
-    
+
         self.gp.fit(X, y)
-    
+
         # Define the acquisition function (Expected Improvement)
         def acquisition(x):
             mu, sigma = self.gp.predict(x.reshape(1, -1), return_std=True)
@@ -144,18 +147,18 @@ class HyperparameterBayesianOptimization:
             else:
                 gamma = (mu - np.max(y)) / sigma
                 return -1 * (mu - np.max(y)) - 0.01 * (sigma * (norm.cdf(gamma) + gamma * norm.pdf(gamma)))
-    
+
         # Step 2: Find the hyperparameters that perform best on the surrogate
         bounds = [(v.start, v.end) for v in self.template_reg_val_vals]
         res = minimize(acquisition, x0=np.random.uniform([b[0] for b in bounds], [b[1] for b in bounds]), bounds=bounds, method='L-BFGS-B')
-    
+
         # Step 3: Apply these hyperparameters to the true objective function is done outside this function
         # Step 4: Update the surrogate model incorporating the new results
         # This is done automatically as we refit the Gaussian Process with new data at each iteration
-    
+
         # The new model's hyperparameters
         reg_val_val = res.x
-    
+
         # add the new model
         self.add_model_with_reg_vals(reg_val_val)
 
@@ -173,76 +176,13 @@ class HyperparameterBayesianOptimization:
         # update the models with the previous trials
         if self.len_prev_trials >= self.init_num_samples:
             self.update_models(prev_trials)
-        
+
         # return the next model
         print('models length: ', len(self.models), ' current_idx: ', self.current_idx)
         model = self.models[self.current_idx]
         self.current_idx += 1
         return model
 
-
-# The hyperparameter walker should focus on walking over reg vals and optimizer params
-# the model templates can be defined in advance and the runner should not care about how the models are structured
-# as there are too many different ways to structure the models,
-# and it is not worth the effort to make the runner flexible enough to handle all of them.
-class HyperparameterGridSearch:
-    def __init__(self, model_template):
-        self.len_prev_trials = -1
-        self.current_idx = 0
-        self.models = []
-
-        # walk over the network, extract the reg_vals (with value as Sample), and put them inside a 
-        # flat list with the network, layer, param name and the reg_val
-        # walk over the network, extract the reg_vals (with value as Sample), and put them inside a 
-        # flat list with the network, layer, param name and the reg_val
-        reg_vals_keys = []
-        reg_vals_vals = []
-        for ni, network in enumerate(model_template.networks):
-            for li,layer in enumerate(network.layers):
-                if 'reg_vals' in layer.params:
-                    for k,v in layer.params['reg_vals'].items():
-                        if k == 'bcs': # handle the boundary condition special case
-                            for bk,bv in v.items():
-                                reg_vals_keys.append((ni, li, k, bk))
-                                if type(bv) is Sample:
-                                    reg_vals_vals.append(np.linspace(bv.start, bv.end, bv.num_samples).tolist())
-                                else:
-                                    reg_vals_vals.append([bv]) # just copy the value over as a list
-                        elif type(v) is Sample:
-                            # set the reg_vals to be a list of samples of different orders of magnitude between the start and end
-                            reg_vals_keys.append((ni, li, k, None))
-                            reg_vals_vals.append(np.linspace(v.start, v.end, v.num_samples).tolist())
-                        else:
-                            reg_vals_keys.append((ni, li, k, None))
-                            reg_vals_vals.append([v]) # just copy the value over as a list
-        
-        # get the combinations of reg_vals
-        grid_search = it.product(*reg_vals_vals)
-
-        # now, we have a dict of reg_vals, with each value being a list of reg_vals to sample from
-        # we want to create a model for each combination of reg_vals
-        for reg_vals in grid_search:
-            model = copy.deepcopy(model_template)
-            # get the network, layer and keys for each reg_val
-            for i, reg_val in enumerate(reg_vals):
-                ni, li, k, bk = reg_vals_keys[i]
-                if bk is None:
-                    model.networks[ni].layers[li].params['reg_vals'][k] = reg_val
-                else:
-                    model.networks[ni].layers[li].params['reg_vals'][k][bk] = reg_val
-            model.update_NDN() # update the NDN with the new reg_vals
-            self.models.append(model)
-
-        print('Total number of models:', len(self.models))
-
-    def has_next(self):
-        return self.current_idx < len(self.models)
-
-    def get_next(self, prev_trials):
-        self.len_prev_trials += 1
-        model = self.models[self.current_idx]
-        self.current_idx += 1
-        return model
 
 
 class TrainerParams:
@@ -324,11 +264,10 @@ class Runner:
                 # no existing experiment found
                 # make the experiment
                 self.experiment = exp.Experiment(name=self.experiment_name,
-                                            description=self.experiment_desc,
-                                            generate_trial=lambda prev_trials: self.generate_trial(prev_trials),
-                                            experiment_location=self.experiment_location,
-                                            overwrite=self.overwrite_mode)
-
+                                                 description=self.experiment_desc,
+                                                 generate_trial=lambda prev_trials: self.generate_trial(prev_trials),
+                                                 experiment_location=self.experiment_location,
+                                                 overwrite=self.overwrite_mode)
 
     def generate_trial(self, prev_trials):
         trial_idx = self.initial_trial_idx
@@ -343,15 +282,15 @@ class Runner:
                 #       move this into the experiment and refactor the relationship between experiment and runner
                 model_expt_prev_trials = []
                 init_prev_trial_len = len(prev_trials)
-                
+    
                 if self.hyperparameter_walker is None:
                     print('HERE')
                     if self.search_strategy == SearchStrategy.grid:
                         hyperparameter_walker = HyperparameterGridSearch(model_template)
                     elif self.search_strategy == SearchStrategy.bayes:
                         hyperparameter_walker = HyperparameterBayesianOptimization(model_template,
-                                                   init_num_samples=self.trainer_params.bayes_init_num_samples,
-                                                   max_num_samples=self.trainer_params.bayes_max_num_samples)
+                                                                                   init_num_samples=self.trainer_params.bayes_init_num_samples,
+                                                                                   max_num_samples=self.trainer_params.bayes_max_num_samples)
                 else:
                     hyperparameter_walker = self.hyperparameter_walker
                     if self.hyperparameter_walker.len_prev_trials > 0:
@@ -362,7 +301,7 @@ class Runner:
                     if len(prev_trials) > init_prev_trial_len:
                         # if there are new trials, add them to the model_expt_prev_trials
                         model_expt_prev_trials.append(prev_trials[-1])
-                    
+    
                     model = hyperparameter_walker.get_next(model_expt_prev_trials)
                     fit_pars = utils.create_optimizer_params(
                         optimizer_type='AdamW',
@@ -377,13 +316,13 @@ class Runner:
                     fit_pars['verbose'] = True
                     if self.trainer_params.max_epochs is not None:
                         fit_pars['max_epochs'] = self.trainer_params.max_epochs
-
+    
                     # skip until trial_idx
                     if trial_idx < self.initial_trial_idx:
                         print('skipping trial', trial_idx)
                         trial_idx += 1
                         continue
-
+    
                     print('Loading dataset for', expt)
                     dataset_params = {
                         'time_embed': True,
@@ -394,19 +333,19 @@ class Runner:
                     }
                     expt_dataset = MultiDataset(**dataset_params)
                     expt_dataset.set_cells() # specify which cells to use (use all if no params provided)
-
+    
                     # modify the model_template.output to match the data.NC before creating
                     print('Updating model output neurons to:', expt_dataset.NC)
                     model.update_num_neurons(expt_dataset.NC)
-
+    
                     trial_params = {'trial_idx': trial_idx,
                                     'model_name': model.name,
                                     'expt': '+'.join(expt)}
-
+    
                     # print the trial_params
                     print('=== TRIAL', trial_idx, '===')
                     pprint.pprint(trial_params)
-
+    
                     trial_info = exp.TrialInfo(name=model.name+str(trial_idx),
                                                description=model.name,
                                                trial_params=trial_params,
@@ -415,7 +354,7 @@ class Runner:
                                                fit_params=fit_pars,
                                                expt_idx=expt_idx,
                                                model_idx=model_idx)
-
+    
                     trial = exp.Trial(trial_info=trial_info,
                                       model=model,
                                       dataset=expt_dataset,
@@ -427,11 +366,11 @@ class Runner:
                 self.hyperparameter_walker = None
                 expt_idx += 1
             model_idx += 1
-
-
+    
+    
     def run(self):
         if self.experiment_finished:
             print('Experiment', self.experiment_name, 'is already finished. Exiting.')
             return
-        
+    
         self.experiment.run(self.trainer_params.device)

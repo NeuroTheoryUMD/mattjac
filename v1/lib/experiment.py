@@ -10,7 +10,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import model as mod
-import runner
+import runner2
 from enum import Enum
 # https://docs.python.org/3/library/typing.html
 
@@ -65,7 +65,6 @@ def _load_trial(trial_name, experiment_folder, datadir=None, lazy=True): # lazy=
     trial = Trial(trial_info=trial_info,
                   model=model,
                   dataset=dataset,
-                  hyperparameter_walker=trial_directory, # TODO: don't do this
                   eval_function=None)
     # set the results properties so we have access to them
     trial.LLs = LLs
@@ -87,6 +86,7 @@ def load(expname, experiment_location, datadir=None, lazy=True): # load experime
     experiment = Experiment(name=expname,
                             description=exp_params['description'],
                             generate_trial=None,
+                            hyperparameter_walker=None,
                             experiment_location=experiment_location,
                             datadir=datadir,
                             overwrite=Overwrite.append)
@@ -105,6 +105,9 @@ def load(expname, experiment_location, datadir=None, lazy=True): # load experime
             continue
         # skip the file named 'finished'
         if trial_name == 'finished':
+            continue
+        # skip the hyperparameter_walker file
+        if trial_name == 'hyperparameter_walker.pickle':
             continue
         # finally, load the trial folder
         try:
@@ -131,17 +134,13 @@ class TrialInfo:
                  trial_params:dict,
                  dataset_params:dict,
                  dataset_class,
-                 fit_params:dict,
-                 expt_idx:int=None,
-                 model_idx:int=None):
+                 fit_params:dict):
         self.name = name
         self.description = description
         self.trial_params = trial_params
         self.dataset_params = dataset_params
         self.dataset_class = dataset_class
         self.fit_params = fit_params
-        self.expt_idx = expt_idx
-        self.model_idx = model_idx
 
 
 # contains data and model to fit and return log-likelihoods for
@@ -149,7 +148,6 @@ class Trial:
     def __init__(self, 
                  trial_info:TrialInfo,
                  model:mod.Model,
-                 hyperparameter_walker,
                  dataset,
                  eval_function):
         self.name = trial_info.name
@@ -157,7 +155,6 @@ class Trial:
         self.trial_params = trial_info.trial_params
         self.trial_info = trial_info
         self.model = model
-        self._hyperparameter_walker = hyperparameter_walker
         self.eval_function = eval_function # not serialized
         self._dataset = dataset # not serialized
         
@@ -213,16 +210,6 @@ class Trial:
     
     # define property to allow lazy loading
     dataset = property(_get_dataset)
-    
-    # define hyperparameter walker property to allow lazy loading
-    def _get_hyperparameter_walker(self):
-        if isinstance(self._hyperparameter_walker, str): # the _hyperparameter_walker is a filename
-            with open(os.path.join(self._hyperparameter_walker, 'hyperparameter_walker.pickle'), 'rb') as f:
-                self._hyperparameter_walker = pickle.load(f)
-        return self._hyperparameter_walker
-
-    # define property to allow lazy loading
-    hyperparameter_walker = property(_get_hyperparameter_walker)
 
     def run(self, device, experiment_folder):
         self.trial_directory = os.path.join(experiment_folder, self.trial_info.name)
@@ -262,10 +249,6 @@ class Trial:
         # save LLs
         with open(os.path.join(self.trial_directory, 'LLs.pickle'), 'wb') as f:
             pickle.dump(list(self.LLs), f)
-            
-        # save hyperparameter_walker
-        with open(os.path.join(self.trial_directory, 'hyperparameter_walker.pickle'), 'wb') as f:
-            pickle.dump(self.hyperparameter_walker, f)
 
     
 class Experiment:
@@ -273,14 +256,16 @@ class Experiment:
                  name:str,
                  description:str,
                  generate_trial,
+                 hyperparameter_walker,
                  experiment_location:str,
                  datadir:str=None,
                  overwrite:Overwrite=Overwrite.append):
         self.name = name
         self.description = description
+        self.generate_trial = generate_trial
+        self._hyperparameter_walker = hyperparameter_walker
         self.experiment_folder = os.path.join(experiment_location, name)
         self.datadir = datadir
-        self.generate_trial = generate_trial
         self.overwrite = overwrite
         
         # experiment trials
@@ -423,12 +408,23 @@ class Experiment:
         # concatenate the individual DFs
         self._trials = pd.concat(dfs)
         self._trials = self.trials_df.sort_values(by='trial_idx') # sort numerically by trial_idx
+
+    # define hyperparameter walker property to allow lazy loading
+    def _get_hyperparameter_walker(self):
+        if self._hyperparameter_walker is None:
+            # load the hyperparameter_walker
+            with open(os.path.join(self.experiment_folder, 'hyperparameter_walker.pickle'), 'rb') as f:
+                self._hyperparameter_walker = pickle.load(f)
+        return self._hyperparameter_walker
     
     def _get_trials_df(self):
         return self._trials
     
     def _get_trials(self):
         return self._trials['trial'].values
+
+    # define property to allow lazy loading
+    hyperparameter_walker = property(_get_hyperparameter_walker)
     
     # property to encapsulate getting and setting trials dataframe
     trials_df = property(fget=_get_trials_df, fset=_set_trials)
