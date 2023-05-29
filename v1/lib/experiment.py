@@ -412,6 +412,7 @@ class Experiment:
     # define hyperparameter walker property to allow lazy loading
     def _get_hyperparameter_walker(self):
         if self._hyperparameter_walker is None:
+            print('lazy loading hyperparameter_walker')
             # load the hyperparameter_walker
             with open(os.path.join(self.experiment_folder, 'hyperparameter_walker.pickle'), 'rb') as f:
                 self._hyperparameter_walker = pickle.load(f)

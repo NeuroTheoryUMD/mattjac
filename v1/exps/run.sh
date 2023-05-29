@@ -17,7 +17,7 @@ then
 fi
 
 # set the maximum number of iterations
-max_iterations=100
+max_iterations=1000
 sleep_time=10 # seconds
 
 # initialize counter

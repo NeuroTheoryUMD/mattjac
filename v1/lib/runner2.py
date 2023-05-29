@@ -39,10 +39,9 @@ class ValueList:
         self.values = values
 
 class Sample:
-    def __init__(self, start, end, num_samples=3):
+    def __init__(self, start, end):
         self.start = start
         self.end = end
-        self.num_samples = num_samples
 
 def update_model_params(model, param_keys, param_vals):
     for idx, key in enumerate(param_keys):
@@ -155,35 +154,20 @@ class HyperparameterBayesianOptimization:
             model_params = []
             for i, param in enumerate(value_list_param_vals):
                 if isinstance(param, ValueList):
-                    print("adding ValueList value: ", param.values[model_idx])
                     model_params.append(param.values[model_idx])
                 else:
-                    print("adding param value: ", self.param_keys[i], "=", param)
                     model_params.append(param)
-            model = deepcopy(model_template)
-            print('FIRST MODEL PARAMS: ')
-            pprint.pprint(list(zip(self.param_keys, model_params)))
-            update_model_params(model, self.param_keys, model_params)
-            self.models.append(model)
-        
-        # make the initial models for the Samples
-        for i in range(init_num_samples):
-            model_params = []
-            for v in self.template_param_vals:
-                if isinstance(v, list) and len(v) == 3:
-                    if isinstance(v[1], Sample):
-                        sample_val = np.random.uniform(v[1].start, v[1].end, 1)[0]
-                        print("adding Sample value: ", sample_val)
-                        model_params.append(sample_val)
-                    else:
-                        # add the default value
-                        model_params.append(v[0])
-                else:
-                    model_params.append(v)
-                    
-            print('SECOND MODEL PARAMS:')
-            pprint.pprint(list(zip(self.param_keys, model_params)))
             self.add_model_with_param_vals(self.param_keys, model_params)
+
+            # make the initial models for the Samples
+            for i in range(init_num_samples):
+                for idx, v in enumerate(self.template_param_vals):
+                    if isinstance(v, list) and len(v) == 3:
+                        if isinstance(v[1], Sample):
+                            sample_val = np.random.uniform(v[1].start, v[1].end, 1)[0]
+                            model_params[idx] = sample_val
+    
+                self.add_model_with_param_vals(self.param_keys, model_params)
 
     def update_models(self, prev_trials):
         # Retrieve hyperparameters and performances of previous trials
@@ -232,7 +216,7 @@ class HyperparameterBayesianOptimization:
         self.models.append(model)
 
     def has_next(self):
-        return self.current_idx < self.max_num_samples + self.num_fixed_params
+        return self.current_idx < self.num_fixed_params + self.max_num_samples*self.num_fixed_params
 
     def get_next(self, prev_trials):
         print('length of prev_trials: ', len(prev_trials))
@@ -328,19 +312,15 @@ class Runner:
         model_template = self.model_template
         print('Model:', model_template.name, self.hyperparameter_walker)
     
-        model_expt_prev_trials = []
+        # get the length of the previous trials
         init_prev_trial_len = len(prev_trials)
     
+        # create the hyperparameter walker if it doesn't exist
         if self.hyperparameter_walker is None:
             self.hyperparameter_walker = HyperparameterBayesianOptimization(model_template,
                                                                             init_num_samples=self.trainer_params.bayes_init_num_samples,
                                                                             max_num_samples=self.trainer_params.bayes_max_num_samples)
-        else:
-            if self.hyperparameter_walker.len_prev_trials > 0:
-                model_expt_prev_trials.extend(prev_trials[:-self.hyperparameter_walker.len_prev_trials])
-            print('Using existing hyperparameter walker, Models left:',
-                  len(self.hyperparameter_walker.models) - self.hyperparameter_walker.current_idx)
-    
+        
         while self.hyperparameter_walker.has_next():
             # TODO: combine the runner and the experiment classes
             #       so that we can use the experiment class to run the model
@@ -349,12 +329,8 @@ class Runner:
             print('Saving hyperparameter walker state', self.experiment_location)
             with open(os.path.join(self.experiment_location, self.experiment_name, 'hyperparameter_walker.pickle'), 'wb') as f:
                 pickle.dump(self.hyperparameter_walker, f)
-            
-            if len(prev_trials) > init_prev_trial_len:
-                # if there are new trials, add them to the model_expt_prev_trials
-                model_expt_prev_trials.append(prev_trials[-1])
     
-            model = self.hyperparameter_walker.get_next(model_expt_prev_trials)
+            model = self.hyperparameter_walker.get_next(prev_trials)
             fit_pars = utils.create_optimizer_params(
                 optimizer_type='AdamW',
                 num_workers=0,
