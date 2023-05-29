@@ -34,14 +34,13 @@ import experiment as exp
 
 from copy import deepcopy
 
-class ValueList:
-    def __init__(self, values):
-        self.values = values
-
 class Sample:
-    def __init__(self, start, end):
+    def __init__(self, typ, start, end, values):
+        self.typ = typ
         self.start = start
         self.end = end
+        self.values = values
+        
 
 def update_model_params(model, param_keys, param_vals):
     for idx, key in enumerate(param_keys):
@@ -90,15 +89,15 @@ def get_model_params(model_template):
     return param_keys, param_vals
 
 class HyperparameterBayesianOptimization:
-    def __init__(self, model_template, init_num_samples=2, learning_rate=0.1, max_num_samples=10):
+    def __init__(self, model_template, init_num_samples=2, 
+                 learning_rate=0.1, max_num_samples=10, num_initializations=1):
         self.model_template = model_template
         self.init_num_samples = init_num_samples
         self.learning_rate = learning_rate
         self.max_num_samples = max_num_samples
+        self.num_initializations = num_initializations
         self.current_idx = 0
         self.models = []
-        self.param_keys = []
-        self.template_param_vals = []
 
         kernel = Matern()
         self.gp = GaussianProcessRegressor(kernel=kernel, alpha=1e-6)
@@ -110,63 +109,56 @@ class HyperparameterBayesianOptimization:
         # store default values for each param
         self.default_param_vals = copy.deepcopy(self.template_param_vals)
         for idx, v in enumerate(self.template_param_vals):
-            # TODO: poor heuristic for determining if this is a list
-            #       of Samples and/or ValueLists
-            if isinstance(v, list) and len(v) == 3:
+            if isinstance(v, Sample):
                 # add the default value
-                self.default_param_vals[idx] = v[0]
+                self.default_param_vals[idx] = v.values[0]
 
         # Create models for each param val
         # keep track of the keys for the sample params
         self.sample_param_keys = []
+        self.sample_param_vals = []
         self.sample_param_key_to_idx = {}
-        self.template_sample_param_vals = []
         
         self.num_fixed_params = None
-        value_list_param_vals = copy.deepcopy(self.template_param_vals)
         for idx, v in enumerate(self.template_param_vals):
-            # TODO: poor heuristic for determining if this is a list
-            #       of Samples and/or ValueLists
-            if isinstance(v, list) and len(v) == 3:
-                if isinstance(v[2], ValueList):
-                    value_list_param_vals[idx] = v[2]
-                # TODO: this is kind of a hack, but should work for now
-                elif isinstance(v[1], Sample):
-                    # add the sample param key
-                    self.sample_param_keys.append(self.param_keys[idx])
-                    self.sample_param_key_to_idx[self.param_keys[idx]] = idx
-                    # add the sample param vals
-                    self.template_sample_param_vals.append(v[1])
-                    value_list_param_vals[idx] = v[0]
-                else:
-                    # add the default value
-                    value_list_param_vals[idx] = v[0]
-    
-                print("self.num_fixed_params: ", self.num_fixed_params)
-                if self.num_fixed_params is None and isinstance(value_list_param_vals[idx], ValueList):
-                    print("setting self.num_fixed_params to length of list of values for param: ", self.param_keys[idx])
-                    self.num_fixed_params = len(value_list_param_vals[idx].values)
-                elif isinstance(value_list_param_vals[idx], ValueList) and len(value_list_param_vals[idx].values) != self.num_fixed_params:
-                    raise ValueError("All ValueLists should be of the same length.")
+            if isinstance(v, Sample):
+                print("Sample: ", v, v.values)
+                # add the values to the value_list_param_vals, if they exist
+                # otherwise, add the default value
+                print("Values: ", v.values)
+                # set the number of fixed params
+                if self.num_fixed_params is None:
+                    self.num_fixed_params = len(v.values)
+                elif len(v.values) != self.num_fixed_params:
+                    raise ValueError("All ValueLists must have the same length")
 
-        # make the models for the ValueLists
+                # add the sample param key
+                self.sample_param_keys.append(self.param_keys[idx])
+                
+                # add the sample param key to idx mapping
+                self.sample_param_key_to_idx[self.param_keys[idx]] = idx
+                
+                self.sample_param_vals.append(v)
+
+        # make the models for the fixed lists of values
         for model_idx in range(self.num_fixed_params):
-            model_params = []
-            for i, param in enumerate(value_list_param_vals):
-                if isinstance(param, ValueList):
-                    model_params.append(param.values[model_idx])
-                else:
-                    model_params.append(param)
-            self.add_model_with_param_vals(self.param_keys, model_params)
+            model_params = copy.deepcopy(self.template_param_vals)
+            for idx, param in enumerate(self.template_param_vals):
+                if isinstance(param, Sample):
+                    model_params[idx] = param.values[model_idx]
+            # add the model a number of times equal to the number of initializations
+            for _ in range(num_initializations):
+                self.add_model_with_param_vals(self.param_keys, model_params)
 
-            # make the initial models for the Samples
-            for i in range(init_num_samples):
-                for idx, v in enumerate(self.template_param_vals):
-                    if isinstance(v, list) and len(v) == 3:
-                        if isinstance(v[1], Sample):
-                            sample_val = np.random.uniform(v[1].start, v[1].end, 1)[0]
-                            model_params[idx] = sample_val
-    
+        # make the initial models for the Samples
+        for i in range(init_num_samples):
+            model_params = copy.deepcopy(self.template_param_vals)
+            for idx, param in enumerate(self.template_param_vals):
+                if isinstance(param, Sample):
+                    sample_val = np.random.uniform(param.start, param.end, 1)[0]
+                    model_params[idx] = sample_val
+            # add the model a number of times equal to the number of initializations
+            for _ in range(num_initializations):
                 self.add_model_with_param_vals(self.param_keys, model_params)
 
     def update_models(self, prev_trials):
@@ -176,7 +168,7 @@ class HyperparameterBayesianOptimization:
     
         # Normalize the hyperparameters to [0, 1] range
         # we only want to change the hyperparameters that are Samples
-        bounds = [(v.start, v.end) for v in self.template_sample_param_vals]
+        bounds = [(v.start, v.end) for v in self.sample_param_vals]
         scaler = MinMaxScaler()
         print("X: ", X)
         X_normalized = scaler.fit_transform(X)
@@ -203,11 +195,15 @@ class HyperparameterBayesianOptimization:
         # copy the param_keys and replace the sample param keys with the sample param vals
         param_vals = copy.deepcopy(self.default_param_vals)
         for i,k in enumerate(self.sample_param_keys):
-            idx = self.sample_param_key_to_idx[k]
-            param_vals[idx] = sample_param_vals[i]
+            idx = self.sample_param_key_to_idx[k] # get the index of the sample param
+            assert isinstance(self.template_param_vals[idx], Sample)
+            typ = self.template_param_vals[idx].typ # get the type of the sample param
+            # cast the sample param val to the correct type (int, float, etc.)
+            param_vals[idx] = typ(sample_param_vals[i])
     
         # add the new model
-        self.add_model_with_param_vals(self.param_keys, param_vals)
+        for _ in range(self.num_initializations):
+            self.add_model_with_param_vals(self.param_keys, param_vals)
 
     def add_model_with_param_vals(self, param_keys, param_vals):
         model = copy.deepcopy(self.model_template)
@@ -216,7 +212,10 @@ class HyperparameterBayesianOptimization:
         self.models.append(model)
 
     def has_next(self):
-        return self.current_idx < self.num_fixed_params + self.max_num_samples*self.num_fixed_params
+        # total num samples + number of random initializations for each fixed param + the fixed params themselves
+        num_inits_for_each_value = (self.init_num_samples+1)*self.num_fixed_params
+        num_samples_left_after_init = self.max_num_samples - self.init_num_samples
+        return self.current_idx < num_samples_left_after_init + num_inits_for_each_value
 
     def get_next(self, prev_trials):
         print('length of prev_trials: ', len(prev_trials))
@@ -262,7 +261,8 @@ class Runner:
                  experiment_name, 
                  model_template, 
                  dataset_expt, 
-                 trainer_params, 
+                 trainer_params,
+                 trial_params,
                  experiment_desc='', 
                  experiment_location='../experiments/',
                  datadir='../Mdata/',
@@ -273,6 +273,7 @@ class Runner:
         self.dataset_expt = dataset_expt
         self.datadir = datadir
         self.trainer_params = trainer_params
+        self.trial_params = trial_params
         self.initial_trial_idx = initial_trial_idx
         self.experiment_desc = experiment_desc
         self.experiment_location = experiment_location
@@ -319,7 +320,8 @@ class Runner:
         if self.hyperparameter_walker is None:
             self.hyperparameter_walker = HyperparameterBayesianOptimization(model_template,
                                                                             init_num_samples=self.trainer_params.bayes_init_num_samples,
-                                                                            max_num_samples=self.trainer_params.bayes_max_num_samples)
+                                                                            max_num_samples=self.trainer_params.bayes_max_num_samples,
+                                                                            num_initializations=self.trainer_params.num_initializations)
         
         while self.hyperparameter_walker.has_next():
             # TODO: combine the runner and the experiment classes
@@ -369,6 +371,9 @@ class Runner:
             trial_params = {'trial_idx': trial_idx,
                             'model_name': model.name,
                             'expt': '+'.join(self.dataset_expt)}
+            
+            # extend the trial_params with the self.trial_params
+            trial_params.update(self.trial_params)
     
             # print the trial_params
             print('=== TRIAL', trial_idx, '===')
