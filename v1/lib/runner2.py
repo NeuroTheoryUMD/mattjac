@@ -57,7 +57,6 @@ def get_model_params_with_keys(model_template, param_keys):
     # get the param values from the model template for the given param keys
     param_vals = []
     for idx, key in enumerate(param_keys):
-        print('key: ', key)
         ni, li, param_key, sub_key = key
         if param_key == 'reg_vals':
             if sub_key is None:
@@ -74,7 +73,6 @@ def get_model_params(model_template):
     for ni, network in enumerate(model_template.networks):
         for li, layer in enumerate(network.layers):
             for param_key, param_val in layer.params.items():
-                print(param_key, '-->', param_val)
                 if param_key == 'reg_vals':
                     if isinstance(param_val, dict):
                         for sub_key, sub_val in param_val.items():
@@ -90,11 +88,11 @@ def get_model_params(model_template):
 
 class HyperparameterBayesianOptimization:
     def __init__(self, model_template, init_num_samples=2, 
-                 learning_rate=0.1, max_num_samples=10, num_initializations=1):
+                 learning_rate=0.1, bayes_num_steps=10, num_initializations=1):
         self.model_template = model_template
         self.init_num_samples = init_num_samples
         self.learning_rate = learning_rate
-        self.max_num_samples = max_num_samples
+        self.bayes_num_steps = bayes_num_steps
         self.num_initializations = num_initializations
         self.current_idx = 0
         self.models = []
@@ -122,10 +120,8 @@ class HyperparameterBayesianOptimization:
         self.num_fixed_params = None
         for idx, v in enumerate(self.template_param_vals):
             if isinstance(v, Sample):
-                print("Sample: ", v, v.values)
                 # add the values to the value_list_param_vals, if they exist
                 # otherwise, add the default value
-                print("Values: ", v.values)
                 # set the number of fixed params
                 if self.num_fixed_params is None:
                     self.num_fixed_params = len(v.values)
@@ -160,6 +156,8 @@ class HyperparameterBayesianOptimization:
             # add the model a number of times equal to the number of initializations
             for _ in range(num_initializations):
                 self.add_model_with_param_vals(self.param_keys, model_params)
+                
+        self.total_num_samples = len(self.models) + self.bayes_num_steps
 
     def update_models(self, prev_trials):
         # Retrieve hyperparameters and performances of previous trials
@@ -170,9 +168,7 @@ class HyperparameterBayesianOptimization:
         # we only want to change the hyperparameters that are Samples
         bounds = [(v.start, v.end) for v in self.sample_param_vals]
         scaler = MinMaxScaler()
-        print("X: ", X)
         X_normalized = scaler.fit_transform(X)
-        print("X_normalized: ", X_normalized)
     
         # Fit the Gaussian Process on normalized X
         self.gp.fit(X_normalized, y)
@@ -212,19 +208,14 @@ class HyperparameterBayesianOptimization:
         self.models.append(model)
 
     def has_next(self):
-        # total num samples + number of random initializations for each fixed param + the fixed params themselves
-        num_inits_for_each_value = (self.init_num_samples+1)*self.num_fixed_params
-        num_samples_left_after_init = self.max_num_samples - self.init_num_samples
-        return self.current_idx < num_samples_left_after_init + num_inits_for_each_value
+        return self.current_idx < self.total_num_samples
 
     def get_next(self, prev_trials):
-        print('length of prev_trials: ', len(prev_trials))
         # update the models with the previous trials
         if len(prev_trials) >= self.init_num_samples + self.num_fixed_params:
             self.update_models(prev_trials)
 
         # return the next model
-        print('models length: ', len(self.models), ' current_idx: ', self.current_idx)
         model = self.models[self.current_idx]
         self.current_idx += 1
         return model
@@ -241,8 +232,8 @@ class TrainerParams:
                  device="cuda:1",
                  include_MUs=False,
                  is_multiexp=False,
-                 bayes_init_num_samples=2,
-                 bayes_max_num_samples=10):
+                 init_num_samples=2,
+                 bayes_num_steps=10):
         self.batch_size = batch_size
         self.num_lags = num_lags
         self.num_initializations = num_initializations
@@ -253,8 +244,8 @@ class TrainerParams:
         self.device = torch.device(device)
         self.include_MUs = include_MUs
         self.is_multiexp = is_multiexp
-        self.bayes_init_num_samples = bayes_init_num_samples
-        self.bayes_max_num_samples = bayes_max_num_samples
+        self.init_num_samples = init_num_samples
+        self.bayes_num_steps = bayes_num_steps
 
 class Runner:
     def __init__(self, 
@@ -311,16 +302,12 @@ class Runner:
     def generate_trial(self, prev_trials):
         trial_idx = self.initial_trial_idx
         model_template = self.model_template
-        print('Model:', model_template.name, self.hyperparameter_walker)
-    
-        # get the length of the previous trials
-        init_prev_trial_len = len(prev_trials)
     
         # create the hyperparameter walker if it doesn't exist
         if self.hyperparameter_walker is None:
             self.hyperparameter_walker = HyperparameterBayesianOptimization(model_template,
-                                                                            init_num_samples=self.trainer_params.bayes_init_num_samples,
-                                                                            max_num_samples=self.trainer_params.bayes_max_num_samples,
+                                                                            init_num_samples=self.trainer_params.init_num_samples,
+                                                                            bayes_num_steps=self.trainer_params.bayes_num_steps,
                                                                             num_initializations=self.trainer_params.num_initializations)
         
         while self.hyperparameter_walker.has_next():
@@ -328,7 +315,6 @@ class Runner:
             #       so that we can use the experiment class to run the model
             #       and this will make it easier to save and restore the state
             # save the current hyperparameter_walker state
-            print('Saving hyperparameter walker state', self.experiment_location)
             with open(os.path.join(self.experiment_location, self.experiment_name, 'hyperparameter_walker.pickle'), 'wb') as f:
                 pickle.dump(self.hyperparameter_walker, f)
     

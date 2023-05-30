@@ -30,8 +30,8 @@ def tconv_scaffold_iter(num_lags, num_iter, layer1_num_lags, num_filters):
         initialize_center=True,
         output_norm='batch',
         padding='spatial',
-        reg_vals={'d2xt': r.Sample(typ=float, values=[0.0001], start=0.00001, end=0.1),
-                  'center': r.Sample(typ=float, values=[0], start=0.0001, end=0.1),
+        reg_vals={'d2xt': r.Sample(typ=float, values=[0.0001, 0.0001], start=0.00001, end=0.1),
+                  'center': r.Sample(typ=float, values=[0, 0], start=0, end=0.1),
                   'bcs': {'d2xt': 1}})
 
     itert_layer = m.IterativeTemporalConvolutionalLayer(
@@ -47,9 +47,9 @@ def tconv_scaffold_iter(num_lags, num_iter, layer1_num_lags, num_filters):
         output_norm='batch',
         num_iter=num_iter,
         output_config='full',
-        reg_vals={'activity': r.Sample(typ=float, values=[0], start=0.00001, end=0.1),
-                  'd2xt': r.Sample(typ=float, values=[0.0001], start=0.00001, end=0.1),
-                  'center': r.Sample(typ=float, values=[0], start=0.0001, end=0.1),
+        reg_vals={'activity': r.Sample(typ=float, values=[0, 0.0001], start=0.00001, end=0.1),
+                  'd2xt': r.Sample(typ=float, values=[0.0001, 0.0001], start=0.00001, end=0.1),
+                  'center': r.Sample(typ=float, values=[0, 0], start=0, end=0.1),
                   'bcs': {'d2xt': 1}})
 
     readout_layer = m.Layer(
@@ -78,34 +78,34 @@ def tconv_scaffold_iter(num_lags, num_iter, layer1_num_lags, num_filters):
                           create_NDN=False, verbose=True)
     return itert_model
 
-#expt = ['expt04', 'expt06', 'expt07', 'expt09', 'expt11']
-expt = ['expt04']
+#expt = ['expt04']
+expt = ['expt04', 'expt06', 'expt07', 'expt09', 'expt11']
 num_lags = 20
-
-model_templates = []
-trainer_params = r.TrainerParams(num_lags=num_lags,
-                                 device="cuda:1", # use the second GPU
-                                 max_epochs=1, # just for testing
-                                 include_MUs=False,
-                                 bayes_init_num_samples=4,
-                                 bayes_max_num_samples=10,
-                                 num_initializations=1)
-
-for num_filters in [24, 36]:
-    for layer1_num_lags in [2, 3]:
-        for num_iter in [3, 5, 7, 9]:
-            runner = r.Runner(experiment_name='iter_exps04_'+str(num_iter)+'iters_'+str(num_filters)+'filters_'+str(layer1_num_lags)+'layer1NumLags',
-                                          dataset_expt=expt,
-                                          model_template=tconv_scaffold_iter(num_lags=num_lags,
-                                                                             layer1_num_lags=2,
-                                                                             num_iter=num_iter,
-                                                                             num_filters=num_filters),
-                                          trainer_params=trainer_params,
-                                          trial_params={'num_filters': num_filters,
-                                                        'num_iter': num_iter,
-                                                        'layer1_num_lags': layer1_num_lags})
-            runner.run()
-
+num_filters = 12
+layer1_num_lags = 2
+num_iters0 = [2, 3, 4, 5]
+num_iters1 = [6, 7, 8, 9]
+for num_iter in num_iters1:
+    trainer_params = r.TrainerParams(num_lags=num_lags,
+                                     device="cuda:1", # use the second GPU
+                                     #max_epochs=1, # just for testing
+                                     batch_size=5000,
+                                     include_MUs=True,
+                                     init_num_samples=2,
+                                     bayes_num_steps=5,
+                                     num_initializations=1)
+    
+    runner = r.Runner(experiment_name='iter_exps06_'+str(num_iter)+'iters',
+                                  dataset_expt=expt,
+                                  model_template=tconv_scaffold_iter(num_lags=num_lags,
+                                                                     layer1_num_lags=layer1_num_lags,
+                                                                     num_iter=num_iter,
+                                                                     num_filters=num_filters),
+                                  trainer_params=trainer_params,
+                                  trial_params={'num_iter': num_iter,
+                                                'num_filters': num_filters,
+                                                'layer1_num_lags': layer1_num_lags})
+    runner.run()
 
 
 # def conv_scaffold(num_filters, num_inh_percent, kernel_widths):

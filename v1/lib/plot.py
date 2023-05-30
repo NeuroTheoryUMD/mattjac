@@ -32,6 +32,47 @@ def darkmode():
 def graymode():
     plt.style.use('bmh') # Bayesian methods for hackers
 
+def imagesc( img, ax=None, cmap=None, balanced=None, aspect=None, max=None, colrow=True, axis_labels=True ):
+    """Modifications of plt.imshow that choose reasonable defaults"""
+    if balanced is None:
+        # Make defaults depending on img
+        if np.sign(np.max(img)) == np.sign(np.min(img)):
+            balanced = False
+        else:
+            balanced = True
+    if balanced:
+        imin = -np.max(abs(img))
+        imax = np.max(abs(img))
+    else:
+        imin = np.min(img)
+        imax = np.max(img)
+
+    if max is not None:
+        imin = -max
+        imax = max
+
+    if aspect is None:
+        if img.shape[0] == img.shape[1]:
+            aspect = 1
+        else:
+            aspect = 'auto'
+
+    if colrow:  # then plot with first axis horizontal, second axis vertical
+        if ax is None:
+            plt.imshow( img.T, cmap=cmap, interpolation='none', aspect=aspect, vmin=imin, vmax=imax)
+        else:
+            ax.imshow( img.T, cmap=cmap, interpolation='none', aspect=aspect, vmin=imin, vmax=imax)
+    else:  # this is like imshow: row, column
+        if ax is None:
+            plt.imshow( img, cmap=cmap, interpolation='none', aspect=aspect, vmin=imin, vmax=imax)
+        else:
+            ax.imshow( img, cmap=cmap, interpolation='none', aspect=aspect, vmin=imin, vmax=imax)
+    if not axis_labels:
+        figgy = plt.gca()
+        figgy.axes.xaxis.set_ticklabels([])
+        figgy.axes.yaxis.set_ticklabels([])
+# END imagesc
+
 def plot_layer_weights(layer,
                        fig=None,
                        figsize=(5,10),
