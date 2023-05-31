@@ -148,8 +148,10 @@ class Trial:
     def __init__(self, 
                  trial_info:TrialInfo,
                  model:mod.Model,
-                 dataset,
-                 eval_function):
+                 eval_function,
+                 dataset=None,
+                 train_ds=None,
+                 val_ds=None):
         self.name = trial_info.name
         self.description = trial_info.description
         self.trial_params = trial_info.trial_params
@@ -157,6 +159,8 @@ class Trial:
         self.model = model
         self.eval_function = eval_function # not serialized
         self._dataset = dataset # not serialized
+        self._train_ds = train_ds # not serialized
+        self._val_ds = val_ds # not serialized
         
         # these are initially null until the Trial is trained or loaded
         self.trial_directory = None
@@ -225,11 +229,11 @@ class Trial:
         assert self.dataset.train_inds is not None, 'Trial ['+self.trial_info.name+']dataset is missing train_inds'
         assert self.dataset.val_inds is not None, 'Trial ['+self.trial_info.name+']dataset is missing val_inds'
 
-        # train_ds = GenericDataset(self.dataset[self.dataset.train_inds], device=device)
-        # val_ds = GenericDataset(self.dataset[self.dataset.val_inds], device=device)
-        # self.model.NDN.fit_dl(train_ds, val_ds, save_dir=self.ckpts_directory, force_dict_training=force_dict_training, **self.trial_info.fit_params)
-
-        self.model.NDN.fit(self.dataset, save_dir=self.ckpts_directory, force_dict_training=force_dict_training, **self.trial_info.fit_params)
+        # fit model on GPU if dataset is on GPU
+        if self._train_ds is not None and self._val_ds is not None:
+            self.model.NDN.fit_dl(self._train_ds, self._val_ds, save_dir=self.ckpts_directory, force_dict_training=force_dict_training, **self.trial_info.fit_params)
+        else:
+            self.model.NDN.fit(self.dataset, save_dir=self.ckpts_directory, force_dict_training=force_dict_training, **self.trial_info.fit_params)
         
         # eval model
         self.LLs = self.eval_function(self.model, self.dataset, device)

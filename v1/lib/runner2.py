@@ -198,8 +198,7 @@ class HyperparameterBayesianOptimization:
             param_vals[idx] = typ(sample_param_vals[i])
     
         # add the new model
-        for _ in range(self.num_initializations):
-            self.add_model_with_param_vals(self.param_keys, param_vals)
+        self.add_model_with_param_vals(self.param_keys, param_vals)
 
     def add_model_with_param_vals(self, param_keys, param_vals):
         model = copy.deepcopy(self.model_template)
@@ -256,6 +255,7 @@ class Runner:
                  trial_params,
                  experiment_desc='', 
                  experiment_location='../experiments/',
+                 dataset_on_gpu=True,
                  datadir='../Mdata/',
                  overwrite=False,
                  initial_trial_idx=0):
@@ -268,6 +268,7 @@ class Runner:
         self.initial_trial_idx = initial_trial_idx
         self.experiment_desc = experiment_desc
         self.experiment_location = experiment_location
+        self.dataset_on_gpu = dataset_on_gpu
         self.hyperparameter_walker = None
         self.experiment_finished = False  # or determine based on some condition
 
@@ -298,6 +299,33 @@ class Runner:
                                                  hyperparameter_walker=self.hyperparameter_walker,
                                                  experiment_location=self.experiment_location,
                                                  overwrite=self.overwrite_mode)
+                
+                
+        # load the dataset
+        print('Loading dataset for', self.dataset_expt)
+        self.dataset_params = {
+            'time_embed': True,
+            'datadir': self.datadir,
+            'filenames': self.dataset_expt,
+            'include_MUs': self.trainer_params.include_MUs,
+            'num_lags': self.trainer_params.num_lags
+        }
+        self.expt_dataset = MultiDataset(**self.dataset_params)
+        self.expt_dataset.set_cells()  # specify which cells to use (use all if no params provided)
+
+        # modify the model_template.output to match the data.NC before creating
+        print('Updating model output neurons to:', self.expt_dataset.NC)
+
+        assert self.expt_dataset.train_inds is not None, 'dataset is missing train_inds'
+        assert self.expt_dataset.val_inds is not None, 'dataset is missing val_inds'
+
+        # fit model on GPU if dataset is on GPU
+        self.train_ds = None
+        self.val_ds = None
+        if self.dataset_on_gpu:
+            self.train_ds = GenericDataset(self.expt_dataset[self.expt_dataset.train_inds], device=self.trainer_params.device)
+            self.val_ds = GenericDataset(self.expt_dataset[self.expt_dataset.val_inds], device=self.trainer_params.device)
+
 
     def generate_trial(self, prev_trials):
         trial_idx = self.initial_trial_idx
@@ -319,6 +347,10 @@ class Runner:
                 pickle.dump(self.hyperparameter_walker, f)
     
             model = self.hyperparameter_walker.get_next(prev_trials)
+
+            # update the model output neurons
+            model.update_num_neurons(self.expt_dataset.NC)
+            
             fit_pars = utils.create_optimizer_params(
                 optimizer_type='AdamW',
                 num_workers=0,
@@ -339,21 +371,6 @@ class Runner:
                 trial_idx += 1
                 continue
     
-            print('Loading dataset for', self.dataset_expt)
-            dataset_params = {
-                'time_embed': True,
-                'datadir': self.datadir,
-                'filenames': self.dataset_expt,
-                'include_MUs': self.trainer_params.include_MUs,
-                'num_lags': self.trainer_params.num_lags
-            }
-            expt_dataset = MultiDataset(**dataset_params)
-            expt_dataset.set_cells()  # specify which cells to use (use all if no params provided)
-    
-            # modify the model_template.output to match the data.NC before creating
-            print('Updating model output neurons to:', expt_dataset.NC)
-            model.update_num_neurons(expt_dataset.NC)
-    
             trial_params = {'trial_idx': trial_idx,
                             'model_name': model.name,
                             'expt': '+'.join(self.dataset_expt)}
@@ -368,15 +385,24 @@ class Runner:
             trial_info = exp.TrialInfo(name=model.name + str(trial_idx),
                                        description=model.name,
                                        trial_params=trial_params,
-                                       dataset_params=dataset_params,
+                                       dataset_params=self.dataset_params,
                                        dataset_class=MultiDataset,
                                        fit_params=fit_pars)
             
-            trial = exp.Trial(trial_info=trial_info,
-                              model=model,
-                              dataset=expt_dataset,
-                              eval_function=lambda model, dataset, device: model.NDN.eval_models(
-                                  Subset(dataset, dataset.val_inds), null_adjusted=True))
+            if self.dataset_on_gpu:
+                trial = exp.Trial(trial_info=trial_info,
+                                  model=model,
+                                  train_ds=self.train_ds,
+                                  val_ds=self.val_ds,
+                                  eval_function=lambda model, dataset, device: model.NDN.eval_models(
+                                      Subset(dataset, dataset.val_inds), null_adjusted=True))
+            else:
+                trial = exp.Trial(trial_info=trial_info,
+                                  model=model,
+                                  dataset=self.expt_dataset,
+                                  eval_function=lambda model, dataset, device: model.NDN.eval_models(
+                                      Subset(dataset, dataset.val_inds), null_adjusted=True))
+                
             yield trial
             trial_idx += 1
     
