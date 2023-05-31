@@ -13,6 +13,7 @@ import os
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly import subplots
+from scipy.optimize import linear_sum_assignment
 
 
 # plotting methods to plot:
@@ -32,7 +33,7 @@ def darkmode():
 def graymode():
     plt.style.use('bmh') # Bayesian methods for hackers
 
-def imagesc( img, ax=None, cmap=None, balanced=None, aspect=None, max=None, colrow=True, axis_labels=True ):
+def imagesc( img, ax=None, cmap=None, balanced=None, aspect=None, max=None, colrow=True, axis_labels=True, flip=False):
     """Modifications of plt.imshow that choose reasonable defaults"""
     if balanced is None:
         # Make defaults depending on img
@@ -59,19 +60,99 @@ def imagesc( img, ax=None, cmap=None, balanced=None, aspect=None, max=None, colr
 
     if colrow:  # then plot with first axis horizontal, second axis vertical
         if ax is None:
-            plt.imshow( img.T, cmap=cmap, interpolation='none', aspect=aspect, vmin=imin, vmax=imax)
+            plt.imshow( img.T, cmap=cmap, interpolation='none', aspect=aspect, vmin=imin, vmax=imax, origin='lower')
         else:
-            ax.imshow( img.T, cmap=cmap, interpolation='none', aspect=aspect, vmin=imin, vmax=imax)
+            ax.imshow( img.T, cmap=cmap, interpolation='none', aspect=aspect, vmin=imin, vmax=imax, origin='lower')
     else:  # this is like imshow: row, column
         if ax is None:
-            plt.imshow( img, cmap=cmap, interpolation='none', aspect=aspect, vmin=imin, vmax=imax)
+            plt.imshow( img, cmap=cmap, interpolation='none', aspect=aspect, vmin=imin, vmax=imax, origin='lower')
         else:
-            ax.imshow( img, cmap=cmap, interpolation='none', aspect=aspect, vmin=imin, vmax=imax)
+            ax.imshow( img, cmap=cmap, interpolation='none', aspect=aspect, vmin=imin, vmax=imax, origin='lower')
     if not axis_labels:
         figgy = plt.gca()
         figgy.axes.xaxis.set_ticklabels([])
         figgy.axes.yaxis.set_ticklabels([])
 # END imagesc
+
+def plot_aligned_filters(models, model_names=None, figsize=(10,5), cmap='gray'):
+    num_filters = None
+    max_num_lags = None
+    model_names = model_names
+
+    # calculate the normalized cross-correlation between the first best model and the other models as pairs
+    # and match them using the Hungarian algorithm (linear_sum_assignment)
+    # then plot the filters in the same order
+    
+    # get the max number of lags and number of filters and model names
+    for model in models:
+        weights = model.networks[0].layers[0].weights
+        if max_num_lags is None:
+            max_num_lags = weights.shape[1]
+        elif max_num_lags > weights.shape[1]:
+            max_num_lags = weights.shape[1] # take the min
+
+        if num_filters is None:
+            num_filters = weights.shape[2]
+        else:
+            assert num_filters == weights.shape[2], 'The number of filters must be the same across models'
+            
+        if model_names is None:
+            model_names = [model.name]
+        else:
+            model_names.append(model.name)
+    
+    # get the filters
+    filters = []
+    for model in models:
+        weights = model.networks[0].layers[0].weights[:,:max_num_lags,:]
+        filters.append(weights)
+    
+    # normalize the filters by max-min
+    normalized_filters = []
+    for i in range(len(filters)):
+        normalized_filters.append((filters[i] - np.min(filters[i])) / (np.max(filters[i]) - np.min(filters[i])))
+    
+    # determine the best match for each filter
+    assignments = []
+    for k in range(1, len(normalized_filters)):
+        # calculate the normalized cross-correlation between the first best model and the other models as pairs
+        ajacency = np.zeros((num_filters, num_filters))
+        for i in range(num_filters):
+            for j in range(num_filters):
+                ajacency[i,j] = 1-np.corrcoef(filters[0][:,:,i].flatten(), normalized_filters[k][:,:,j].flatten())[0,1]
+    
+        # align the filters using the Hungarian algorithm
+        row_ind, col_ind = linear_sum_assignment(ajacency)
+        assignments.append(col_ind)
+    
+    # get the max value across the filters
+    max_vals = [np.max(filters[0]), np.max(filters[1]), np.max(filters[2]), np.max(filters[3])]
+    
+    # plot the filters in the same order
+    fig, axs = plt.subplots(len(filters), num_filters, figsize=figsize)
+    for i in range(0, num_filters):
+        imagesc(filters[0][:,:,i], ax=axs[0,i], cmap=cmap, max=max_vals[0])
+        # turn off the axes
+        axs[0,i].set_xticklabels([])
+        axs[0,i].set_yticklabels([])
+        # label the y-axis
+        if i == 0:
+            axs[0,i].set_ylabel(model_names[0])
+        for j in range(1, len(filters)):
+            imagesc(filters[j][:,:,assignments[j-1][i]], ax=axs[j,i], cmap=cmap, max=max_vals[j])
+            # turn off the axes
+            axs[j,i].set_xticklabels([])
+            axs[j,i].set_yticklabels([])
+            # label the y-axis
+            if i == 0:
+                axs[j,i].set_ylabel(model_names[j])
+    
+    fig.text(0.5, 0.04, 'Models', ha='center', fontsize=14)
+    fig.text(0, 0.5, 'Filters', va='center', rotation='vertical', fontsize=14)
+    plt.subplots_adjust(left=0.02) # shift the subplots left to make room for the y-axis labels
+    fig.suptitle('Filters aligned across the models', fontsize=16)
+    plt.show()
+
 
 def plot_layer_weights(layer,
                        fig=None,
