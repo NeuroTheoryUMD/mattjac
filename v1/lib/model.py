@@ -405,7 +405,6 @@ class Input: # holds the input info
     def to(self, network):
         # set the input_dims of the network to be the desired Input.input_dims
         network.input_covariate = self.covariate
-        print('input_dims', self.input_dims)
         network.layers[0].params['input_dims'] = self.input_dims
         self.output = network
         network.inputs.append(self)
@@ -572,9 +571,7 @@ def _Network_to_FFnetwork(network):
         # TODO: this is a hack, if we have too many of these,
         # we should refactor this to be more general
         # special case if the layer is a TemporalConvolutionalLayer
-        print('LAYER TYPE', layer_type)
         if layer_type == convlayers.TconvLayer:
-            print('MODIFYING TemporalConvolutionalLayer')
             # convert 1D filter dims to 2D filter dims for the NDN
             # for the TconvLayer only, not for the IterTconvLayer
             sanitized_layer_params['filter_dims'] = [1, sanitized_layer_params['filter_width'], 1, sanitized_layer_params['num_lags']]
@@ -583,8 +580,6 @@ def _Network_to_FFnetwork(network):
             del sanitized_layer_params['filter_width']
             # remove the num_lags from the sanitized_layer_params
             del sanitized_layer_params['num_lags']
-
-        print('sanitized_layer_params', sanitized_layer_params)
 
         layer_dict = layer_type.layer_dict(**sanitized_layer_params)
         # NDN has a bug where certain parameters don't get copied over from the constructor

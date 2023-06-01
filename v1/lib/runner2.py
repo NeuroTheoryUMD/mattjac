@@ -98,7 +98,7 @@ class HyperparameterBayesianOptimization:
         self.models = []
 
         kernel = Matern()
-        self.gp = GaussianProcessRegressor(kernel=kernel, alpha=1e-6)
+        self.gp = GaussianProcessRegressor(kernel=kernel)
 
         self.param_keys, self.template_param_vals = get_model_params(model_template)
         print("TEMPLATE PARAM VALS: ")
@@ -113,9 +113,10 @@ class HyperparameterBayesianOptimization:
 
         # Create models for each param val
         # keep track of the keys for the sample params
-        self.sample_param_keys = []
-        self.sample_param_vals = []
+        self.sample_template_param_keys = []
+        self.sample_template_param_vals = []
         self.sample_param_key_to_idx = {}
+        self.sample_param_valses = [] # store the values for each sample param
         
         self.num_fixed_params = None
         for idx, v in enumerate(self.template_param_vals):
@@ -129,30 +130,36 @@ class HyperparameterBayesianOptimization:
                     raise ValueError("All ValueLists must have the same length")
 
                 # add the sample param key
-                self.sample_param_keys.append(self.param_keys[idx])
+                self.sample_template_param_keys.append(self.param_keys[idx])
                 
                 # add the sample param key to idx mapping
                 self.sample_param_key_to_idx[self.param_keys[idx]] = idx
                 
-                self.sample_param_vals.append(v)
+                self.sample_template_param_vals.append(v)
 
         # make the models for the fixed lists of values
         for model_idx in range(self.num_fixed_params):
+            sample_param_vals = []
             model_params = copy.deepcopy(self.template_param_vals)
             for idx, param in enumerate(self.template_param_vals):
                 if isinstance(param, Sample):
                     model_params[idx] = param.values[model_idx]
+                    sample_param_vals.append(param.values[model_idx])
+            self.sample_param_valses.append(sample_param_vals)
             # add the model a number of times equal to the number of initializations
             for _ in range(num_initializations):
                 self.add_model_with_param_vals(self.param_keys, model_params)
 
         # make the initial models for the Samples
         for i in range(init_num_samples):
+            sample_param_vals = []
             model_params = copy.deepcopy(self.template_param_vals)
             for idx, param in enumerate(self.template_param_vals):
                 if isinstance(param, Sample):
                     sample_val = np.random.uniform(param.start, param.end, 1)[0]
                     model_params[idx] = sample_val
+                    sample_param_vals.append(sample_val)
+            self.sample_param_valses.append(sample_param_vals)
             # add the model a number of times equal to the number of initializations
             for _ in range(num_initializations):
                 self.add_model_with_param_vals(self.param_keys, model_params)
@@ -161,12 +168,12 @@ class HyperparameterBayesianOptimization:
 
     def update_models(self, prev_trials):
         # Retrieve hyperparameters and performances of previous trials
-        X = np.array([get_model_params_with_keys(trial.model, self.sample_param_keys) for trial in prev_trials])
+        X = np.array([get_model_params_with_keys(trial.model, self.sample_template_param_keys) for trial in prev_trials])
         y = np.array([np.mean(trial.LLs) for trial in prev_trials])
     
         # Normalize the hyperparameters to [0, 1] range
         # we only want to change the hyperparameters that are Samples
-        bounds = [(v.start, v.end) for v in self.sample_param_vals]
+        bounds = [(v.start, v.end) for v in self.sample_template_param_vals]
         scaler = MinMaxScaler()
         X_normalized = scaler.fit_transform(X)
     
@@ -187,10 +194,11 @@ class HyperparameterBayesianOptimization:
     
         # The new model's hyperparameters (denormalize back to the original range)
         sample_param_vals = scaler.inverse_transform(res.x.reshape(1, -1))[0]
+        self.sample_param_valses.append(sample_param_vals)
     
         # copy the param_keys and replace the sample param keys with the sample param vals
         param_vals = copy.deepcopy(self.default_param_vals)
-        for i,k in enumerate(self.sample_param_keys):
+        for i,k in enumerate(self.sample_template_param_keys):
             idx = self.sample_param_key_to_idx[k] # get the index of the sample param
             assert isinstance(self.template_param_vals[idx], Sample)
             typ = self.template_param_vals[idx].typ # get the type of the sample param
@@ -214,10 +222,13 @@ class HyperparameterBayesianOptimization:
         if len(prev_trials) >= self.init_num_samples + self.num_fixed_params:
             self.update_models(prev_trials)
 
-        # return the next model
+        # get the next model
         model = self.models[self.current_idx]
+        sample_param_vals = self.sample_param_valses[self.current_idx]
         self.current_idx += 1
-        return model
+        
+        # return the model and the sample param keys and vals
+        return model, self.sample_template_param_keys, sample_param_vals
 
 class TrainerParams:
     def __init__(self,
@@ -346,7 +357,7 @@ class Runner:
             with open(os.path.join(self.experiment_location, self.experiment_name, 'hyperparameter_walker.pickle'), 'wb') as f:
                 pickle.dump(self.hyperparameter_walker, f)
     
-            model = self.hyperparameter_walker.get_next(prev_trials)
+            model, sample_param_keys, sample_param_vals = self.hyperparameter_walker.get_next(prev_trials)
 
             # update the model output neurons
             model.update_num_neurons(self.expt_dataset.NC)
@@ -374,6 +385,9 @@ class Runner:
             trial_params = {'trial_idx': trial_idx,
                             'model_name': model.name,
                             'expt': '+'.join(self.dataset_expt)}
+            
+            # add the sample_param_keys and sample_param_vals to the trial_params
+            trial_params.update(dict(zip(sample_param_keys, sample_param_vals)))
             
             # extend the trial_params with the self.trial_params
             trial_params.update(self.trial_params)

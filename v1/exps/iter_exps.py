@@ -80,11 +80,18 @@ def tconv_scaffold_iter(num_lags, num_iter, layer1_num_lags, num_filters):
 
 #expt = ['expt04']
 expt = ['expt04', 'expt06', 'expt07', 'expt09', 'expt11']
-num_lags = 20
+num_lags = 14
 num_filters = 12
 layer1_num_lags = 2
 num_iters = [2,3,4,5,6,7,8,9]
+model_templates = []
 for num_iter in num_iters:
+    model_templates.append(tconv_scaffold_iter(num_lags=num_lags,
+                                               layer1_num_lags=layer1_num_lags,
+                                               num_iter=num_iter,
+                                               num_filters=num_filters))
+
+for model_template, num_iter in zip(model_templates, num_iters):
     trainer_params = r.TrainerParams(num_lags=num_lags,
                                      device="cuda:1", # use the second GPU
                                      #max_epochs=1, # just for testing
@@ -97,10 +104,7 @@ for num_iter in num_iters:
     runner = r.Runner(experiment_name='iter_exps07_'+str(num_iter)+'iters',
                                   dataset_expt=expt,
                                   dataset_on_gpu=True,
-                                  model_template=tconv_scaffold_iter(num_lags=num_lags,
-                                                                     layer1_num_lags=layer1_num_lags,
-                                                                     num_iter=num_iter,
-                                                                     num_filters=num_filters),
+                                  model_template=model_template,
                                   trainer_params=trainer_params,
                                   trial_params={'num_iter': num_iter,
                                                 'num_filters': num_filters,
