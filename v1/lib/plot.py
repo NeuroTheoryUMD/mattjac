@@ -77,10 +77,12 @@ def imagesc( img, ax=None, cmap=None, balanced=None, aspect=None, max=None, colr
 def plot_aligned_filters(models, model_names=None, figsize=(10,5), cmap='gray'):
     """
     Plot the filters of the models in the same order as the first model.
-    models: list of models to plot
-    model_names: list of model names to use as row labels
-    figsize: tuple of figure size (width, height)
-    cmap: colormap to use, default is 'gray'
+    
+    Args:
+        models: list of models to plot
+        model_names: list of model names to use as row labels
+        figsize: tuple of figure size (width, height)
+        cmap: colormap to use, default is 'gray'
     """
     
     num_filters = None

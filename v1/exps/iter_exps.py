@@ -81,7 +81,7 @@ def tconv_scaffold_iter(num_lags, num_iter, layer1_num_lags, num_filters):
 #expt = ['expt04']
 expt = ['expt04', 'expt06', 'expt07', 'expt09', 'expt11']
 num_lags = 14
-num_filters = 12
+num_filters = 8
 layer1_num_lags = 2
 num_iters = [2,3,4,5,6,7,8,9]
 model_templates = []
@@ -101,7 +101,7 @@ for model_template, num_iter in zip(model_templates, num_iters):
                                      bayes_num_steps=2,
                                      num_initializations=1)
     
-    runner = r.Runner(experiment_name='iter_exps07_'+str(num_iter)+'iters',
+    runner = r.Runner(experiment_name='iter_exps08_'+str(num_iter)+'iters',
                                   dataset_expt=expt,
                                   dataset_on_gpu=True,
                                   model_template=model_template,
