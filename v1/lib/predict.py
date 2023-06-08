@@ -91,16 +91,16 @@ def predict(model, inps=None, robs=None, dataset=None,
                 num_filters = model.networks[ni-1].layers[0].params['num_filters']
                 input_dims = model.networks[ni-1].layers[0].params['input_dims']
                 input_space = input_dims[1]
-                print('input dims', input_dims)
+                #print('input dims', input_dims)
 
                 tconv_layer_height = input_space * num_filters
 
                 # get the previous network's output
                 # TODO: look at the code, this should be the latest lag, the one closest in time actual time
-                print('SHAPES', prev_outputs[1].shape, prev_outputs[2].shape, tconv_layer_height, input_space, num_lags, num_filters)
-                print('prev outputs', prev_outputs[1][:tconv_layer_height].shape, prev_outputs[2].shape)
+                #print('SHAPES', prev_outputs[1].shape, prev_outputs[2].shape, tconv_layer_height, input_space, num_lags, num_filters)
+                #print('prev outputs', prev_outputs[1][:tconv_layer_height].shape, prev_outputs[2].shape)
                 prev_output = torch.hstack([prev_outputs[1][:, :tconv_layer_height], prev_outputs[2]])
-                print('concatenated prev_output shape', prev_output.shape)
+                #print('concatenated prev_output shape', prev_output.shape)
             else:
                 prev_output = prev_outputs[-1]
             

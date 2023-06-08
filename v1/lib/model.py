@@ -294,7 +294,7 @@ class IterativeConvolutionalLayer:
 
 class TemporalConvolutionalLayer:
     def __init__(self,
-                 filter_width=None,
+                 filter_dims=None,
                  num_lags=None,
                  window=None,
                  padding='spatial', # default in the NDN
@@ -310,7 +310,7 @@ class TemporalConvolutionalLayer:
                  temporal_tent_spacing:int=None):
         
         self.params = _convert_params(internal_layer_type=TconvLayer,
-                                      filter_width=filter_width,
+                                      filter_dims=filter_dims,
                                       num_lags=num_lags,
                                       window=window,
                                       padding=padding,
@@ -567,19 +567,6 @@ def _Network_to_FFnetwork(network):
             # skip internal params
             if not 'internal' in k:
                 sanitized_layer_params[k] = v
-
-        # TODO: this is a hack, if we have too many of these,
-        # we should refactor this to be more general
-        # special case if the layer is a TemporalConvolutionalLayer
-        if layer_type == convlayers.TconvLayer:
-            # convert 1D filter dims to 2D filter dims for the NDN
-            # for the TconvLayer only, not for the IterTconvLayer
-            sanitized_layer_params['filter_dims'] = [1, sanitized_layer_params['filter_width'], 1, sanitized_layer_params['num_lags']]
-            sanitized_layer_params['num_lags'] = None
-            # remove the filter_width from the sanitized_layer_params
-            del sanitized_layer_params['filter_width']
-            # remove the num_lags from the sanitized_layer_params
-            del sanitized_layer_params['num_lags']
 
         layer_dict = layer_type.layer_dict(**sanitized_layer_params)
         # NDN has a bug where certain parameters don't get copied over from the constructor

@@ -32,7 +32,10 @@ import model as m
 import experiment as exp
 
 
-from copy import deepcopy
+class TrainerType(Enum):
+    lbfgs = 0
+    adam = 1
+
 
 class Sample:
     def __init__(self, typ, start, end, values):
@@ -136,6 +139,9 @@ class HyperparameterBayesianOptimization:
                 self.sample_param_key_to_idx[self.param_keys[idx]] = idx
                 
                 self.sample_template_param_vals.append(v)
+        
+        if self.num_fixed_params is None:
+            self.num_fixed_params = 1
 
         # make the models for the fixed lists of values
         for model_idx in range(self.num_fixed_params):
@@ -148,6 +154,7 @@ class HyperparameterBayesianOptimization:
             self.sample_param_valses.append(sample_param_vals)
             # add the model a number of times equal to the number of initializations
             for _ in range(num_initializations):
+                print('here1')
                 self.add_model_with_param_vals(self.param_keys, model_params)
 
         # make the initial models for the Samples
@@ -162,6 +169,7 @@ class HyperparameterBayesianOptimization:
             self.sample_param_valses.append(sample_param_vals)
             # add the model a number of times equal to the number of initializations
             for _ in range(num_initializations):
+                print('here2')
                 self.add_model_with_param_vals(self.param_keys, model_params)
                 
         self.total_num_samples = len(self.models) + self.bayes_num_steps
@@ -170,6 +178,10 @@ class HyperparameterBayesianOptimization:
         # Retrieve hyperparameters and performances of previous trials
         X = np.array([get_model_params_with_keys(trial.model, self.sample_template_param_keys) for trial in prev_trials])
         y = np.array([np.mean(trial.LLs) for trial in prev_trials])
+        
+        print('X', len(X), X.shape)
+        if X.shape[1] == 0:
+            return
     
         # Normalize the hyperparameters to [0, 1] range
         # we only want to change the hyperparameters that are Samples
@@ -218,12 +230,15 @@ class HyperparameterBayesianOptimization:
         return self.current_idx < self.total_num_samples
 
     def get_next(self, prev_trials):
+        print('current_idx', self.current_idx, 'total_num_samples', self.total_num_samples)
         # update the models with the previous trials
         if len(prev_trials) >= self.init_num_samples + self.num_fixed_params:
             self.update_models(prev_trials)
 
         # get the next model
         model = self.models[self.current_idx]
+        print('---PARAMS---')
+        print(model.NDN.list_parameters())
         sample_param_vals = self.sample_param_valses[self.current_idx]
         self.current_idx += 1
         
@@ -239,6 +254,7 @@ class TrainerParams:
                  learning_rate=0.01,
                  weight_decay=0.1,
                  early_stopping_patience=4,
+                 trainer_type=TrainerType.adam,
                  device="cuda:1",
                  include_MUs=False,
                  is_multiexp=False,
@@ -251,6 +267,7 @@ class TrainerParams:
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
         self.early_stopping_patience = early_stopping_patience
+        self.trainer_type = trainer_type
         self.device = torch.device(device)
         self.include_MUs = include_MUs
         self.is_multiexp = is_multiexp
@@ -362,20 +379,30 @@ class Runner:
             # update the model output neurons
             model.update_num_neurons(self.expt_dataset.NC)
             
-            fit_pars = utils.create_optimizer_params(
-                optimizer_type='AdamW',
-                num_workers=0,
-                optimize_graph=False,
-                batch_size=self.trainer_params.batch_size,
-                learning_rate=self.trainer_params.learning_rate,
-                early_stopping_patience=self.trainer_params.early_stopping_patience,
-                weight_decay=self.trainer_params.weight_decay)
+            # create the trainer
+            if self.trainer_params.trainer_type == TrainerType.lbfgs:
+                fit_pars = utils.create_optimizer_params(
+                    optimizer_type='lbfgs',
+                    tolerance_change=1e-10,
+                    tolerance_grad=1e-10,
+                    history_size=10,
+                    batch_size=self.trainer_params.batch_size,
+                    max_epochs=self.trainer_params.max_epochs,
+                    max_iter=10)
+                fit_pars['verbose'] = 2
+            else:
+                fit_pars = utils.create_optimizer_params(
+                    optimizer_type='AdamW',
+                    num_workers=0,
+                    optimize_graph=False,
+                    batch_size=self.trainer_params.batch_size,
+                    learning_rate=self.trainer_params.learning_rate,
+                    early_stopping_patience=self.trainer_params.early_stopping_patience,
+                    weight_decay=self.trainer_params.weight_decay)
+                fit_pars['verbose'] = True
             fit_pars['is_multiexp'] = self.trainer_params.is_multiexp
             fit_pars['device'] = self.trainer_params.device
-            fit_pars['verbose'] = True
-            if self.trainer_params.max_epochs is not None:
-                fit_pars['max_epochs'] = self.trainer_params.max_epochs
-    
+            
             # skip until trial_idx
             if trial_idx < self.initial_trial_idx:
                 print('skipping trial', trial_idx)

@@ -4,25 +4,134 @@ import runner2 as r
 import model as m
 
 
+def tconv_scaffold_iter_expanded():
+    # Temporal Convolutional Scaffold with Iterative Layer
+    lgn_layer = m.TemporalConvolutionalLayer(
+        num_filters=2,
+        num_inh=1,
+        filter_dims=[1, 17, 1, 11],
+        window='hamming',
+        NLtype=m.NL.relu,
+        norm_type=m.Norm.unit,
+        bias=False,
+        initialize_center=True,
+        output_norm='batch',
+        padding='spatial',
+        reg_vals={'d2t': 0.0001,
+                  'center': 0,
+                  'bcs': {'d2xt': 1}})
+
+    proj_layer = m.TemporalConvolutionalLayer(
+        pos_constraint=True,
+        num_filters=16,
+        num_inh=8,
+        filter_dims=[2, 17, 1, 1],
+        NLtype=m.NL.linear,
+        bias=False,
+        initialize_center=True,
+        window='hamming',
+        reg_vals={'center': 0.0001})
+
+    itert_layer = m.IterativeTemporalConvolutionalLayer(
+        pos_constraint=True,
+        num_filters=16,
+        num_inh=8,
+        filter_dims=7,
+        num_lags=2,
+        window='hamming',
+        NLtype=m.NL.relu,
+        norm_type=m.Norm.unit,
+        bias=False,
+        initialize_center=True,
+        output_norm='batch',
+        num_iter=3,
+        output_config='full',
+        reg_vals={'d2xt': 0.0001,
+                  'center': 0,
+                  'bcs': {'d2xt': 1}})
+
+    readout_layer = m.Layer(
+        # because we have inhibitory subunits on the first layer
+        pos_constraint=True,
+        norm_type=m.Norm.none,
+        NLtype=m.NL.softplus,
+        bias=True,
+        initialize_center=True)
+
+    inp_stim = m.Input(covariate='stim', input_dims=[1,36,1,14])
+
+    lgn_net = m.Network(layers=[lgn_layer],
+                        name='lgn')
+
+    core_net = m.Network(layers=[proj_layer, itert_layer],
+                         network_type=m.NetworkType.scaffold,
+                         name='core')
+    readout_net = m.Network(layers=[readout_layer],
+                            name='readout')
+    # this is set as a starting point, but updated on each iteration
+    output_11 = m.Output(num_neurons=11)
+
+    inp_stim.to(lgn_net)
+    lgn_net.to(core_net)
+    core_net.to(readout_net)
+    readout_net.to(output_11)
+    itert_model = m.Model(output_11,
+                          name='TconvScaffoldIter',
+                          create_NDN=True, verbose=True)
+    return itert_model
+
+
+#expt = ['expt04']
+expt = ['expt04', 'expt06', 'expt09', 'expt11']
+#expt = ['expt01', 'expt02', 'expt03', 'expt04', 'expt06', 'expt09', 'expt11', 'expt17', 'expt19', 'expt19']
+num_lags = 14
+layer1_num_lags = 2
+num_iters = [3,4,5]
+model_templates = []
+for num_iter in num_iters:
+    model_templates.append(tconv_scaffold_iter_expanded())
+    
+for model_template, num_iter in zip(model_templates, num_iters):
+    trainer_params = r.TrainerParams(num_lags=num_lags,
+                                     device="cuda:1", # use the second GPU
+                                     #max_epochs=1, # just for testing
+                                     batch_size=2000,
+                                     include_MUs=True,
+                                     init_num_samples=0,
+                                     bayes_num_steps=0,
+                                     num_initializations=1)
+    
+    runner = r.Runner(experiment_name='iter_exps11_'+str(num_iter)+'iters',
+                                  dataset_expt=expt,
+                                  dataset_on_gpu=False,
+                                  model_template=model_template,
+                                  trainer_params=trainer_params,
+                                  trial_params={'num_iter': num_iter,
+                                                'layer1_num_lags': layer1_num_lags})
+    runner.run()
+    
+    
+
+
 def tconv_scaffold_iter(num_lags, num_iter, layer1_num_lags, num_filters):
     def getL0num_lags(num_iter, iter_filter_height):
         if num_lags-(num_iter*(iter_filter_height-1)) <= 0:
             print('num_lags', num_lags, '<= num_iter', num_iter,
                   '* iter_filter_height-1', iter_filter_height-1,
                   '=', num_iter*(iter_filter_height-1))
-        assert num_lags-(num_iter*(iter_filter_height-1)) > 0,\
+        assert num_lags-(num_iter*(iter_filter_height-1)) > 0, \
             'num_lags must be greater than num_iter*(iter_filter_height-1)'
         return num_lags-(num_iter*(iter_filter_height-1))
-    
+
     # TODO: we need to enforce odd constraints on the filter_width
     #       and enforce the coupling betweeen the num_filters for both layers
-    
+
     # Temporal Convolutional Scaffold with Iterative Layer
     tconv_layer = m.TemporalConvolutionalLayer(
         num_filters=num_filters,
         num_inh=int(0.5*num_filters),
         filter_width=17,
-        num_lags=getL0num_lags(num_iter, layer1_num_lags),
+        num_lags=11,
         window='hamming',
         NLtype=m.NL.relu,
         norm_type=m.Norm.unit,
@@ -77,39 +186,6 @@ def tconv_scaffold_iter(num_lags, num_iter, layer1_num_lags, num_filters):
                           name='TconvScaffoldIter',
                           create_NDN=False, verbose=True)
     return itert_model
-
-#expt = ['expt04']
-expt = ['expt04', 'expt06', 'expt07', 'expt09', 'expt11']
-num_lags = 14
-num_filters = 8
-layer1_num_lags = 2
-num_iters = [2,3,4,5,6,7,8,9]
-model_templates = []
-for num_iter in num_iters:
-    model_templates.append(tconv_scaffold_iter(num_lags=num_lags,
-                                               layer1_num_lags=layer1_num_lags,
-                                               num_iter=num_iter,
-                                               num_filters=num_filters))
-
-for model_template, num_iter in zip(model_templates, num_iters):
-    trainer_params = r.TrainerParams(num_lags=num_lags,
-                                     device="cuda:1", # use the second GPU
-                                     #max_epochs=1, # just for testing
-                                     batch_size=2000,
-                                     include_MUs=True,
-                                     init_num_samples=1,
-                                     bayes_num_steps=2,
-                                     num_initializations=1)
-    
-    runner = r.Runner(experiment_name='iter_exps08_'+str(num_iter)+'iters',
-                                  dataset_expt=expt,
-                                  dataset_on_gpu=True,
-                                  model_template=model_template,
-                                  trainer_params=trainer_params,
-                                  trial_params={'num_iter': num_iter,
-                                                'num_filters': num_filters,
-                                                'layer1_num_lags': layer1_num_lags})
-    runner.run()
 
 
 # def conv_scaffold(num_filters, num_inh_percent, kernel_widths):
