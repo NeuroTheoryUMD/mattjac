@@ -36,6 +36,30 @@ class Results:
     outputs = property(_get_outputs, _set_outputs)
 
 
+def _get_scaffold_outputs(model, prev_outputs, ni, li, input_width=36):
+    # check if the previous network is a scaffold network
+    # and if so, combine the outputs of the previous network
+    
+    # if the previous network is a scaffold network,
+    # then we need to get the output differently from the previous network
+    if li == 0 and model.networks[ni-1].network_type == mod.NetworkType.scaffold:
+        # go through the layers of the previous network, and combine the outputs
+        # handle the Tconv network differently
+        accumulated_prev_outputs = []
+        for li in range(len(model.networks[ni-1].layers)):
+            if isinstance(model.networks[ni-1].layers[li], mod.TemporalConvolutionalLayer):
+                num_filters = model.networks[ni-1].layers[li].params['num_filters']
+                tconv_layer_height = input_width * num_filters
+                # add 1 to li to skip the input layer
+                accumulated_prev_outputs.append(prev_outputs[li+1][:, :tconv_layer_height])
+                print('li', li, 'tconv_layer_height', tconv_layer_height)
+            else:
+                accumulated_prev_outputs.append(prev_outputs[li+1])
+        print('accumulated_prev_outputs', len(accumulated_prev_outputs))
+        return torch.hstack(accumulated_prev_outputs)
+    else:
+        return prev_outputs[-1]
+
 @torch.no_grad() # disable gradient calculation during inference
 def predict(model, inps=None, robs=None, dataset=None,
             network_names_to_use=None, verbose=False, calc_jacobian=False) -> Results:
@@ -83,26 +107,7 @@ def predict(model, inps=None, robs=None, dataset=None,
             all_jacobians[inpi][model.networks[ni].name] = []
         # populate the network lists with the predictions
         for li in range(len(model.networks[ni].layers)):
-            # if the previous network is a scaffold network,
-            # then we need to get the output differently from the previous network
-            if ni > 0 and li == 0 and model.networks[ni-1].network_type == mod.NetworkType.scaffold:
-                # get the numer of lags from the Tconv layer of the previous network
-                num_lags = model.networks[ni-1].layers[0].params['num_lags']
-                num_filters = model.networks[ni-1].layers[0].params['num_filters']
-                input_dims = model.networks[ni-1].layers[0].params['input_dims']
-                input_space = input_dims[1]
-                #print('input dims', input_dims)
-
-                tconv_layer_height = input_space * num_filters
-
-                # get the previous network's output
-                # TODO: look at the code, this should be the latest lag, the one closest in time actual time
-                #print('SHAPES', prev_outputs[1].shape, prev_outputs[2].shape, tconv_layer_height, input_space, num_lags, num_filters)
-                #print('prev outputs', prev_outputs[1][:tconv_layer_height].shape, prev_outputs[2].shape)
-                prev_output = torch.hstack([prev_outputs[1][:, :tconv_layer_height], prev_outputs[2]])
-                #print('concatenated prev_output shape', prev_output.shape)
-            else:
-                prev_output = prev_outputs[-1]
+            prev_output = _get_scaffold_outputs(model, prev_outputs, ni, li)
             
             if verbose:
                 print('prev_output shape', prev_output.shape, 'ni', ni, model.networks[ni].network_type, 'li', li)
@@ -113,44 +118,18 @@ def predict(model, inps=None, robs=None, dataset=None,
             if calc_jacobian:
                 # calculate the Jacobian to get the DSTRF up through this layer
                 def network_regular(x):
-                    prev_outputs = [x]
+                    prev_outputs_jac = [x]
                     with torch.cuda.amp.autocast():
                         for nii in range(len(model.networks)):
                             for lii in range(len(model.networks[nii].layers)):
-                                if nii > 0 and lii == 0 and model.networks[nii-1].network_type == mod.NetworkType.scaffold:
-                                    # get the numer of lags from the Tconv layer of the previous network
-                                    num_lags = model.networks[nii-1].layers[0].params['num_lags']
-                                    num_filters = model.networks[nii-1].layers[0].params['num_filters']
-                                    input_dims = model.networks[nii-1].layers[0].params['input_dims']
-                                    input_space = input_dims[1]
-                                    tconv_layer_height = input_space * num_filters
-                                    # get the previous network's output
-                                    prev_output = torch.hstack([prev_outputs[1][:, :tconv_layer_height], prev_outputs[2]])
-                                else:
-                                    prev_output = prev_outputs[-1]
-
-                                prev_outputs.append(model.NDN.networks[nii].layers[lii](prev_output))
+                                prev_output_jac = _get_scaffold_outputs(model, prev_outputs_jac, nii, lii)
+                                prev_outputs_jac.append(model.NDN.networks[nii].layers[lii](prev_output_jac))
                                 if nii == ni and lii == li:
-                                    return prev_outputs[-1]
-                    
+                                    return prev_outputs_jac[-1]
+                
                 for i in tqdm.tqdm(range(len(inps))): # for each input
                     jacobian = torch.autograd.functional.jacobian(network_regular, inps[i], vectorize=True).cpu()
                     all_jacobians[i][model.networks[ni].name].append(jacobian)
-
-
-                # # calculate the Jacobian to get the DSTRF up through this layer
-                # for li in range(len(model.networks[ni].layers)):
-                #     # calculate the Jacobian to get the DSTRF up through this layer
-                #     def network_regular(x):
-                #         with torch.cuda.amp.autocast():
-                #             prev_z = x
-                #             for lii in range(li+1):
-                #                 # TODO: update this to handle scaffold networks
-                #                 prev_z = model.NDN.networks[ni].layers[lii](prev_z)
-                #             return prev_z
-                #     for i in range(len(inps)): # for each input
-                #         jacobian = torch.autograd.functional.jacobian(network_regular, inps[i], vectorize=True).cpu()
-                #         all_jacobians[i][model.networks[ni].name].append(jacobian)
 
             z_cpu = [z_i.detach().numpy() for z_i in z]
             z_torch = torch.tensor(np.array(z_cpu))

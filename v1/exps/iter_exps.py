@@ -25,7 +25,7 @@ def tconv_scaffold_iter_expanded():
         pos_constraint=True,
         num_filters=16,
         num_inh=8,
-        filter_dims=[2, 17, 1, 1],
+        filter_dims=[2, 15, 1, 1],
         NLtype=m.NL.linear,
         bias=False,
         initialize_center=True,
@@ -91,24 +91,23 @@ model_templates = []
 for num_iter in num_iters:
     model_templates.append(tconv_scaffold_iter_expanded())
     
-for model_template, num_iter in zip(model_templates, num_iters):
-    trainer_params = r.TrainerParams(num_lags=num_lags,
-                                     device="cuda:1", # use the second GPU
-                                     #max_epochs=1, # just for testing
-                                     batch_size=2000,
-                                     include_MUs=True,
-                                     init_num_samples=0,
-                                     bayes_num_steps=0,
-                                     num_initializations=1)
-    
-    runner = r.Runner(experiment_name='iter_exps11_'+str(num_iter)+'iters',
-                                  dataset_expt=expt,
-                                  dataset_on_gpu=False,
-                                  model_template=model_template,
-                                  trainer_params=trainer_params,
-                                  trial_params={'num_iter': num_iter,
-                                                'layer1_num_lags': layer1_num_lags})
-    runner.run()
+trainer_params = r.TrainerParams(num_lags=num_lags,
+                                 device="cuda:1", # use the second GPU
+                                 #max_epochs=1, # just for testing
+                                 batch_size=2000,
+                                 include_MUs=True,
+                                 init_num_samples=0,
+                                 bayes_num_steps=0,
+                                 num_initializations=1)
+
+runner = r.Runner(experiment_name='iter_exps12',
+                  experiment_desc='Trying to understand the convolution in the projection layer.',
+                  dataset_expt=expt,
+                  dataset_on_gpu=False,
+                  model_template=tconv_scaffold_iter_expanded(),
+                  trainer_params=trainer_params,
+                  trial_params={'layer1_num_lags': layer1_num_lags})
+runner.run()
     
     
 
