@@ -13,8 +13,7 @@ from NTdatasets.generic import GenericDataset
 class Results:
     def __init__(self, model):
         # results[frame:int][network_name:str][layer:int] = output:ndarray
-        self._outputs = [] # layer outputs per network
-        self.outputs_shape = ()
+        self.outputs = [] # layer outputs per network
         self.jacobian = None # TODO: this is the Jacobian for the entire model
         self.jacobians = None # the DSTRFs for each layer for each network
         self.inps = None # input (e.g. stim)
@@ -24,19 +23,8 @@ class Results:
         self.r2 = None # TODO: r2 is a measure of how well the model fits the data
         self.model = model
 
-    def _set_outputs(self, outputs):
-        assert len(self.model.networks) > 0, 'model must have at least one network'
-        networks0_name = self.model.networks[0].name
-        self._outputs = outputs
-        self.outputs_shape = (len(self._outputs), len(self._outputs[0]), len(self._outputs[0][networks0_name]), self._outputs[0][networks0_name][0].shape)
-    
-    def _get_outputs(self):
-            return self._outputs
 
-    outputs = property(_get_outputs, _set_outputs)
-
-
-def _get_scaffold_outputs(model, prev_outputs, ni, li, input_width=36):
+def _get_scaffold_outputs(model, all_outputs, inps, ni, li, input_width=36):
     # check if the previous network is a scaffold network
     # and if so, combine the outputs of the previous network
     
@@ -51,18 +39,21 @@ def _get_scaffold_outputs(model, prev_outputs, ni, li, input_width=36):
                 num_filters = model.networks[ni-1].layers[li].params['num_filters']
                 tconv_layer_height = input_width * num_filters
                 # add 1 to li to skip the input layer
-                accumulated_prev_outputs.append(prev_outputs[li+1][:, :tconv_layer_height])
+                accumulated_prev_outputs.append(all_outputs[ni-1][li][:, :tconv_layer_height])
                 print('li', li, 'tconv_layer_height', tconv_layer_height)
             else:
-                accumulated_prev_outputs.append(prev_outputs[li+1])
+                accumulated_prev_outputs.append(all_outputs[ni-1][li])
         print('accumulated_prev_outputs', len(accumulated_prev_outputs))
         return torch.hstack(accumulated_prev_outputs)
-    else:
-        return prev_outputs[-1]
+    elif ni == 0 and li == 0: # we are in the first network, and the first layer, return the input
+        return inps
+    elif li > 0: # we are in the same network, but the next layer, return the previous layer's output
+        return all_outputs[ni][li-1]
+    elif li == 0: # we are in the next network, return the previous network's last layer's output
+        return all_outputs[ni-1][-1]
 
 @torch.no_grad() # disable gradient calculation during inference
-def predict(model, inps=None, robs=None, dataset=None,
-            network_names_to_use=None, verbose=False, calc_jacobian=False) -> Results:
+def predict(model, inps=None, robs=None, dataset=None, verbose=False, calc_jacobian=False) -> Results:
     """
     Predict the model outputs for the given inputs.
     Args:
@@ -91,58 +82,46 @@ def predict(model, inps=None, robs=None, dataset=None,
     # get all the outputs
     num_inps = inps.shape[0]
     if verbose: print('num_inps', num_inps)
-    prev_outputs = [inps]
-    all_jacobians = [{} for _ in range(num_inps)] # initialize all lists
-    all_outputs = [{} for _ in range(num_inps)] # initialize all lists
+    all_jacobians = [] # initialize all lists
+    all_outputs = [] # initialize all lists
     # initialize the network lists
     for ni in range(len(model.networks)):
-        # skip networks that are not in the list of networks to use
-        if network_names_to_use is not None and model.networks[ni].name not in network_names_to_use:
-            continue
-
-        # populate the lists
-        for inpi in range(num_inps):
-            # add list of network layer predictions by network name
-            all_outputs[inpi][model.networks[ni].name] = []
-            all_jacobians[inpi][model.networks[ni].name] = []
         # populate the network lists with the predictions
+        all_outputs.append([])
+        all_jacobians.append([])
         for li in range(len(model.networks[ni].layers)):
-            prev_output = _get_scaffold_outputs(model, prev_outputs, ni, li)
+            prev_output = _get_scaffold_outputs(model, all_outputs, inps, ni, li)
             
             if verbose:
                 print('prev_output shape', prev_output.shape, 'ni', ni, model.networks[ni].network_type, 'li', li)
 
-            # calls the forward method of the layer
-            z = model.NDN.networks[ni].layers[li](prev_output)
-
             if calc_jacobian:
                 # calculate the Jacobian to get the DSTRF up through this layer
-                def network_regular(x):
-                    prev_outputs_jac = [x]
+                def network_regular(inp):
+                    all_outputs_jac = []
                     with torch.cuda.amp.autocast():
                         for nii in range(len(model.networks)):
+                            all_outputs_jac.append([])
                             for lii in range(len(model.networks[nii].layers)):
-                                prev_output_jac = _get_scaffold_outputs(model, prev_outputs_jac, nii, lii)
-                                prev_outputs_jac.append(model.NDN.networks[nii].layers[lii](prev_output_jac))
+                                prev_output_jac = _get_scaffold_outputs(model, all_outputs_jac, inp, nii, lii)
+                                z_jac = model.NDN.networks[nii].layers[lii](prev_output_jac)
+                                all_outputs_jac[nii].append(z_jac)
                                 if nii == ni and lii == li:
-                                    return prev_outputs_jac[-1]
+                                    return z_jac
                 
+                layer_jacobians = []
                 for i in tqdm.tqdm(range(len(inps))): # for each input
                     jacobian = torch.autograd.functional.jacobian(network_regular, inps[i], vectorize=True).cpu()
-                    all_jacobians[i][model.networks[ni].name].append(jacobian)
+                    layer_jacobians.append(jacobian)
+                # vertically stack the jacobians for each input
+                all_jacobians[ni].append(torch.vstack(layer_jacobians))
 
-            z_cpu = [z_i.detach().numpy() for z_i in z]
-            z_torch = torch.tensor(np.array(z_cpu))
-            # outputs is layers x num_inputs x dims
-            # but we want, num_inputs x layers x dims
-            # get the outputs for the current input inpi for each layer
-            # expand each output dims to be 1xdim as well
-            for i in range(num_inps): # for each input
-                # add model predictions for this layer
-                all_outputs[i][model.networks[ni].name].append(np.expand_dims(z_cpu[i], 0))
+            # calls the forward method of the layer
+            z = model.NDN.networks[ni].layers[li](prev_output)
+            all_outputs[ni].append(z)
+
             if verbose:
-                print(prev_output.shape, '-->', z_torch.shape)
-            prev_outputs.append(z_torch)
+                print(prev_output.shape, '-->', z.shape)
 
     # add predicted robs for time
     pred = model.NDN({'stim': inps}).detach().numpy()
