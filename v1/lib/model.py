@@ -5,6 +5,7 @@ sys.path.insert(0, '../../') # to have access to NDNT
 import copy # needed to handle annoying python pass by reference
 import pprint
 import networkx as nx
+import numpy as np
 from enum import Enum
 
 # NDN imports
@@ -172,9 +173,15 @@ class Layer:
     
     def _get_weights(self):
         return self.network.model.NDN.networks[self.network.index].layers[self.index].get_weights()
+    
+    def _subunit_weights(self):
+        weights = self.network.model.NDN.networks[self.network.index].layers[self.index].get_weights()
+        # reshape weights by the number of filters in this layer
+        return np.reshape(weights, (self.params['num_filters'], -1))
 
     # define property to make it easier to remember
     weights = property(_get_weights)
+    subunit_weights = property(_subunit_weights)
 
 
 # layer subclasses

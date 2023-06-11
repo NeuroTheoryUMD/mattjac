@@ -24,10 +24,9 @@ class Results:
         self.model = model
 
 
-def _get_scaffold_outputs(model, all_outputs, inps, ni, li, input_width=36):
+def _get_scaffold_outputs(model, all_outputs, inps, ni, li, input_width):
     # check if the previous network is a scaffold network
     # and if so, combine the outputs of the previous network
-    
     # if the previous network is a scaffold network,
     # then we need to get the output differently from the previous network
     if li == 0 and model.networks[ni-1].network_type == mod.NetworkType.scaffold:
@@ -37,13 +36,13 @@ def _get_scaffold_outputs(model, all_outputs, inps, ni, li, input_width=36):
         for li in range(len(model.networks[ni-1].layers)):
             if isinstance(model.networks[ni-1].layers[li], mod.TemporalConvolutionalLayer):
                 num_filters = model.networks[ni-1].layers[li].params['num_filters']
-                tconv_layer_height = input_width * num_filters
+                tconv_layer_height = input_width * num_filters # use the first filter lag
                 # add 1 to li to skip the input layer
                 accumulated_prev_outputs.append(all_outputs[ni-1][li][:, :tconv_layer_height])
-                print('li', li, 'tconv_layer_height', tconv_layer_height)
+                #print('li', li, 'tconv_layer_height', tconv_layer_height)
             else:
                 accumulated_prev_outputs.append(all_outputs[ni-1][li])
-        print('accumulated_prev_outputs', len(accumulated_prev_outputs))
+        #print('accumulated_prev_outputs', len(accumulated_prev_outputs))
         return torch.hstack(accumulated_prev_outputs)
     elif ni == 0 and li == 0: # we are in the first network, and the first layer, return the input
         return inps
@@ -81,6 +80,7 @@ def predict(model, inps=None, robs=None, dataset=None, verbose=False, calc_jacob
 
     # get all the outputs
     num_inps = inps.shape[0]
+    input_width = model.networks[0].layers[0].params['input_dims'][1]
     if verbose: print('num_inps', num_inps)
     all_jacobians = [] # initialize all lists
     all_outputs = [] # initialize all lists
@@ -90,7 +90,7 @@ def predict(model, inps=None, robs=None, dataset=None, verbose=False, calc_jacob
         all_outputs.append([])
         all_jacobians.append([])
         for li in range(len(model.networks[ni].layers)):
-            prev_output = _get_scaffold_outputs(model, all_outputs, inps, ni, li)
+            prev_output = _get_scaffold_outputs(model, all_outputs, inps, ni, li, input_width)
             
             if verbose:
                 print('prev_output shape', prev_output.shape, 'ni', ni, model.networks[ni].network_type, 'li', li)
@@ -103,7 +103,7 @@ def predict(model, inps=None, robs=None, dataset=None, verbose=False, calc_jacob
                         for nii in range(len(model.networks)):
                             all_outputs_jac.append([])
                             for lii in range(len(model.networks[nii].layers)):
-                                prev_output_jac = _get_scaffold_outputs(model, all_outputs_jac, inp, nii, lii)
+                                prev_output_jac = _get_scaffold_outputs(model, all_outputs_jac, inp, nii, lii, input_width)
                                 z_jac = model.NDN.networks[nii].layers[lii](prev_output_jac)
                                 all_outputs_jac[nii].append(z_jac)
                                 if nii == ni and lii == li:
@@ -112,9 +112,25 @@ def predict(model, inps=None, robs=None, dataset=None, verbose=False, calc_jacob
                 layer_jacobians = []
                 for i in tqdm.tqdm(range(len(inps))): # for each input
                     jacobian = torch.autograd.functional.jacobian(network_regular, inps[i], vectorize=True).cpu()
+                    # reshape the jacobian to be number of filters by input shape
                     layer_jacobians.append(jacobian)
                 # vertically stack the jacobians for each input
-                all_jacobians[ni].append(torch.vstack(layer_jacobians))
+                stacked_jacobians = torch.vstack(layer_jacobians)
+                num_timepoints = stacked_jacobians.shape[0]
+                # reshape the jacobian based on the layer type
+                if isinstance(model.networks[ni].layers[li], mod.TemporalConvolutionalLayer):
+                    #jacobian = time x (filter_lags x num_filters x input_width) x input_size
+                    num_filters = model.networks[ni].layers[li].params['num_filters']
+                    filter_lags = 4
+                    stacked_jacobians = stacked_jacobians.reshape(num_timepoints, filter_lags, num_filters, input_width, -1)
+                elif isinstance(model.networks[ni].layers[li], mod.IterativeTemporalConvolutionalLayer):
+                    num_filters = model.networks[ni].layers[li].params['num_filters']
+                    num_iter = model.networks[ni].layers[li].params['num_iter']
+                    stacked_jacobians = stacked_jacobians.reshape(num_timepoints, num_iter, num_filters, input_width, -1)
+                elif isinstance(model.networks[ni].layers[li], mod.Network) and model.networks[ni-1].network_type == mod.NetworkType.scaffold:
+                    num_filters = model.networks[ni].layers[li].params['num_filters']
+                    stacked_jacobians = stacked_jacobians.reshape(num_timepoints, num_filters, -1)
+                all_jacobians[ni].append(stacked_jacobians)
 
             # calls the forward method of the layer
             z = model.NDN.networks[ni].layers[li](prev_output)
