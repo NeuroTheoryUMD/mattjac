@@ -130,7 +130,7 @@ def predict(model, inps=None, robs=None, dataset=None, verbose=False, calc_jacob
                 elif isinstance(model.networks[ni].layers[li], mod.Network) and model.networks[ni-1].network_type == mod.NetworkType.scaffold:
                     num_filters = model.networks[ni].layers[li].params['num_filters']
                     stacked_jacobians = stacked_jacobians.reshape(num_timepoints, num_filters, -1)
-                all_jacobians[ni].append(stacked_jacobians)
+                all_jacobians[ni].append(stacked_jacobians.detach().numpy())
 
             # calls the forward method of the layer
             z = model.NDN.networks[ni].layers[li](prev_output)
@@ -166,3 +166,24 @@ def predict(model, inps=None, robs=None, dataset=None, verbose=False, calc_jacob
     results.r2 = r2
     results.jacobian = jacobian
     return results
+
+
+def calc_preds(dataset, model, end=None, batch_size=100000):
+    # calculate the results of the model
+    if end is None:
+        end = dataset.NT
+    preds = []
+    for nt in tqdm.tqdm(range(batch_size, end+batch_size, batch_size)):
+        output = model.NDN(dataset[nt-batch_size:nt])
+        preds.append(output.detach().cpu().numpy())
+    return np.concatenate(preds)
+
+
+def calc_STAs(dataset, preds, end=None):
+    # calculate the STA
+    num_lags = dataset.num_lags
+    Reff = dataset.robs * dataset.dfs
+    nspks = torch.sum(Reff, axis=0)
+    pred = (dataset.stim[:end].T@preds / nspks).reshape([-1, num_lags, dataset.NC]).detach().numpy()
+    stas = (dataset.stim[:end].T@dataset.robs[:end] / nspks).reshape([-1, num_lags, dataset.NC]).detach().numpy()
+    return stas, pred

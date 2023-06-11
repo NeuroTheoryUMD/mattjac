@@ -218,6 +218,25 @@ def plot_aligned_filters(models, model_names=None, figsize=(10,5), cmap='gray'):
     plt.subplots_adjust(left=0.02) # shift the subplots left to make room for the y-axis labels
     fig.suptitle('Filters aligned across the models', fontsize=16)
     plt.show()
+    
+    
+def plot_STAs(stas, pred, dataset, trial, figsize=(30, 20)):
+    expt_boundaries = np.concatenate([[0], np.cumsum(dataset.num_units)])
+    # plot first 6 STAs
+    for expti in range(len(expt_boundaries)-1):
+        fig = plt.figure(figsize=figsize)
+        fig.suptitle(dataset.filenames[expti]+': neurons '+str(expt_boundaries[expti])+'-'+str(expt_boundaries[expti+1]))
+        i = 0
+        for cc in range(expt_boundaries[expti], expt_boundaries[expti+1]):
+            expt_len = expt_boundaries[expti+1] - expt_boundaries[expti]
+            plt.subplot(expt_len//4+1, 8, i+1)
+            imagesc(stas[:, :, cc], aspect='auto', cmap='gray_r', colrow=True, axis_labels=False)
+            plt.title('STA '+str(cc))
+            plt.subplot(expt_len//4+1, 8, i+2)
+            imagesc(pred[:, :, cc], aspect='auto', cmap='gray_r', colrow=True, axis_labels=False)
+            plt.title('PRD '+str(cc)+', LL = %.4f' % trial.LLs[cc])
+            i += 2
+    plt.show()
 
 
 def plot_layer_weights(layer,

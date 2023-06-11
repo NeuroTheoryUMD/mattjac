@@ -9,7 +9,7 @@ def tconv_scaffold_iter_expanded():
     lgn_layer = m.TemporalConvolutionalLayer(
         num_filters=2,
         num_inh=1,
-        filter_dims=[1, 17, 1, 11],
+        filter_dims=[1, 17, 1, 14-5],
         window='hamming',
         NLtype=m.NL.relu,
         norm_type=m.Norm.unit,
@@ -44,7 +44,7 @@ def tconv_scaffold_iter_expanded():
         bias=False,
         initialize_center=True,
         output_norm='batch',
-        num_iter=3,
+        num_iter=5,
         output_config='full',
         reg_vals={'d2xt': 0.0001,
                   'center': 0,
@@ -60,10 +60,7 @@ def tconv_scaffold_iter_expanded():
 
     inp_stim = m.Input(covariate='stim', input_dims=[1,36,1,14])
 
-    lgn_net = m.Network(layers=[lgn_layer],
-                        name='lgn')
-
-    core_net = m.Network(layers=[proj_layer, itert_layer],
+    core_net = m.Network(layers=[lgn_layer, proj_layer, itert_layer],
                          network_type=m.NetworkType.scaffold,
                          name='core')
     readout_net = m.Network(layers=[readout_layer],
@@ -71,8 +68,7 @@ def tconv_scaffold_iter_expanded():
     # this is set as a starting point, but updated on each iteration
     output_11 = m.Output(num_neurons=11)
 
-    inp_stim.to(lgn_net)
-    lgn_net.to(core_net)
+    inp_stim.to(core_net)
     core_net.to(readout_net)
     readout_net.to(output_11)
     itert_model = m.Model(output_11,
@@ -100,8 +96,8 @@ trainer_params = r.TrainerParams(num_lags=num_lags,
                                  bayes_num_steps=0,
                                  num_initializations=1)
 
-runner = r.Runner(experiment_name='iter_exps12',
-                  experiment_desc='Trying to understand the convolution in the projection layer.',
+runner = r.Runner(experiment_name='iter_exps12_5iters',
+                  experiment_desc='Adding the LGN layer to the scaffold for proper weighting.',
                   dataset_expt=expt,
                   dataset_on_gpu=False,
                   model_template=tconv_scaffold_iter_expanded(),
