@@ -14,13 +14,13 @@ class Results:
     def __init__(self, model):
         # results[frame:int][network_name:str][layer:int] = output:ndarray
         self.outputs = [] # layer outputs per network
-        self.jacobian = None # TODO: this is the Jacobian for the entire model
+        self.jacobian = None # this is the Jacobian for the entire model
         self.jacobians = None # the DSTRFs for each layer for each network
         self.inps = None # input (e.g. stim)
         self.inps_shape = () # shape of the input (e.g. stim_dims)
         self.robs = None # actual robs
         self.pred = None # predicted robs
-        self.r2 = None # TODO: r2 is a measure of how well the model fits the data
+        self.r2 = None # r2 is a measure of how well the model fits the data
         self.model = model
 
 
@@ -134,6 +134,7 @@ def predict(model, inps=None, robs=None, dataset=None, verbose=False, calc_jacob
 
             # calls the forward method of the layer
             z = model.NDN.networks[ni].layers[li](prev_output)
+            
             all_outputs[ni].append(z)
 
             if verbose:
@@ -155,8 +156,29 @@ def predict(model, inps=None, robs=None, dataset=None, verbose=False, calc_jacob
         for i in tqdm.tqdm(range(len(inps))): # for each input
             jacobian.append(torch.autograd.functional.jacobian(model_stim, inps[i], vectorize=True).cpu())
         jacobian = torch.stack(jacobian).detach().numpy()
+        jacobian = jacobian.squeeze()
 
-    # all_outputs[frame:int][network_name:str][layer:int] = output:ndarray
+    # reshape the outputs
+    for ni in range(len(model.networks)):
+        for li in range(len(model.networks[ni].layers)):
+            output = all_outputs[ni][li]
+            num_timepoints = output.shape[0]
+            # reshape the output based on the layer type
+            if isinstance(model.networks[ni].layers[li], mod.TemporalConvolutionalLayer):
+                #jacobian = time x (filter_lags x num_filters x input_width) x input_size
+                num_filters = model.networks[ni].layers[li].params['num_filters']
+                filter_lags = 4
+                output = output.reshape(num_timepoints, filter_lags, num_filters, input_width)
+            elif isinstance(model.networks[ni].layers[li], mod.IterativeTemporalConvolutionalLayer):
+                num_filters = model.networks[ni].layers[li].params['num_filters']
+                num_iter = model.networks[ni].layers[li].params['num_iter']
+                output = output.reshape(num_timepoints, num_iter, num_filters, input_width)
+            elif isinstance(model.networks[ni].layers[li], mod.Network) and model.networks[ni-1].network_type == mod.NetworkType.scaffold:
+                num_filters = model.networks[ni].layers[li].params['num_filters']
+                output = output.reshape(num_timepoints, num_filters)
+            all_outputs[ni][li] = output.detach().numpy()
+
+    # populate the results object
     results = Results(model)
     results.inps = inps
     results.outputs = all_outputs
@@ -168,12 +190,47 @@ def predict(model, inps=None, robs=None, dataset=None, verbose=False, calc_jacob
     return results
 
 
+def predict_batch(model, dataset, end=None, calc_jacobian=False, verbose=False, batch_size=100000):
+    # calculate the results of the model
+    if end is None:
+        end = dataset.NT
+    
+    all_results = []
+    for nt in tqdm.tqdm(range(batch_size, end+1, batch_size)):
+        results = predict(model, dataset=dataset[nt-batch_size:nt], calc_jacobian=calc_jacobian, verbose=verbose)
+        all_results.append(results)
+    
+    # combine the properties in the results
+    results = Results(model)
+    results.inps = all_results[0].inps
+    outputs = []
+    for ni in range(len(all_results[0].outputs)):
+        network_outputs = []
+        for li in range(len(all_results[0].outputs[ni])):
+            network_outputs.append(np.concatenate([r.outputs[ni][li] for r in all_results]))
+        outputs.append(network_outputs)
+    results.outputs = outputs
+    results.robs = np.concatenate([r.robs for r in all_results], axis=0)
+    results.pred = np.concatenate([r.pred for r in all_results], axis=0)
+    results.r2 = np.mean([r.r2 for r in all_results], axis=0)
+    if calc_jacobian:
+        jacobians = []
+        for ni in range(len(all_results[0].jacobians)):
+            network_jacobians = []
+            for li in range(len(all_results[0].jacobians[ni])):
+                network_jacobians.append(np.concatenate([r.jacobians[ni][li] for r in all_results]))
+            jacobians.append(network_jacobians)
+        results.jacobians = jacobians
+        results.jacobian = np.concatenate([r.jacobian for r in all_results])
+    return results
+
+
 def calc_preds(dataset, model, end=None, batch_size=100000):
     # calculate the results of the model
     if end is None:
         end = dataset.NT
     preds = []
-    for nt in tqdm.tqdm(range(batch_size, end+batch_size, batch_size)):
+    for nt in tqdm.tqdm(range(batch_size, end+1, batch_size)):
         output = model.NDN(dataset[nt-batch_size:nt])
         preds.append(output.detach().cpu().numpy())
     return np.concatenate(preds)
