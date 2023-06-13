@@ -7,8 +7,8 @@ import model as m
 def tconv_scaffold_iter_expanded():
     # Temporal Convolutional Scaffold with Iterative Layer
     lgn_layer = m.TemporalConvolutionalLayer(
-        num_filters=2,
-        num_inh=1,
+        num_filters=4,
+        num_inh=2,
         filter_dims=[1, 17, 1, 14-5],
         window='hamming',
         NLtype=m.NL.relu,
@@ -25,7 +25,7 @@ def tconv_scaffold_iter_expanded():
         pos_constraint=True,
         num_filters=16,
         num_inh=8,
-        filter_dims=[2, 15, 1, 1],
+        filter_dims=[4, 15, 1, 1],
         NLtype=m.NL.linear,
         bias=False,
         initialize_center=True,
@@ -96,7 +96,7 @@ trainer_params = r.TrainerParams(num_lags=num_lags,
                                  bayes_num_steps=0,
                                  num_initializations=1)
 
-runner = r.Runner(experiment_name='iter_exps12_5iters',
+runner = r.Runner(experiment_name='iter_exps10_5iters',
                   experiment_desc='Adding the LGN layer to the scaffold for proper weighting.',
                   dataset_expt=expt,
                   dataset_on_gpu=False,
