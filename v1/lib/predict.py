@@ -6,6 +6,7 @@ import torch
 import tqdm
 import numpy as np
 import model as mod
+from torch.func import jacrev
 from NTdatasets.generic import GenericDataset
 
 
@@ -121,7 +122,8 @@ def predict(model, inps=None, robs=None, dataset=None, verbose=False, calc_jacob
                 
                 layer_jacobians = []
                 for i in tqdm.tqdm(range(len(inps))): # for each input
-                    jacobian = torch.autograd.functional.jacobian(network_regular, inps[i], vectorize=True).cpu()
+                    #jacobian = torch.autograd.functional.jacobian(network_regular, inps[i], vectorize=True).cpu()
+                    jacobian = jacrev(network_regular)(inps[i]).cpu()
                     # reshape the jacobian to be number of filters by input shape
                     layer_jacobians.append(jacobian)
                 # vertically stack the jacobians for each input
@@ -131,7 +133,7 @@ def predict(model, inps=None, robs=None, dataset=None, verbose=False, calc_jacob
                 if isinstance(model.networks[ni].layers[li], mod.TemporalConvolutionalLayer):
                     #jacobian = time x (filter_lags x num_filters x input_width) x input_size
                     num_filters = model.networks[ni].layers[li].params['num_filters']
-                    filter_lags = 6
+                    filter_lags = 4
                     #stacked_jacobians = stacked_jacobians.reshape(num_timepoints, filter_lags, num_filters, input_width, -1)
                     stacked_jacobians = stacked_jacobians.reshape(num_timepoints, num_filters, input_width, filter_lags, -1)
                 elif isinstance(model.networks[ni].layers[li], mod.IterativeTemporalConvolutionalLayer):
@@ -168,6 +170,7 @@ def predict(model, inps=None, robs=None, dataset=None, verbose=False, calc_jacob
     #             return model.NDN({'stim': x})
     #     for i in tqdm.tqdm(range(len(inps))): # for each input
     #         jacobian.append(torch.autograd.functional.jacobian(model_stim, inps[i], vectorize=True).cpu())
+    #         jacobian.append(jacrev(network_regular)(inps[i]).cpu())
     #     jacobian = torch.stack(jacobian).detach().numpy()
     #     jacobian = jacobian.squeeze()
 
@@ -184,7 +187,7 @@ def predict(model, inps=None, robs=None, dataset=None, verbose=False, calc_jacob
             if isinstance(model.networks[ni].layers[li], mod.TemporalConvolutionalLayer):
                 #jacobian = time x (filter_lags x num_filters x input_width) x input_size
                 num_filters = model.networks[ni].layers[li].params['num_filters']
-                filter_lags = 6
+                filter_lags = 4
                 output = output.reshape(num_timepoints, num_filters, input_width, filter_lags, -1)
             elif isinstance(model.networks[ni].layers[li], mod.IterativeTemporalConvolutionalLayer):
                 num_filters = model.networks[ni].layers[li].params['num_filters']

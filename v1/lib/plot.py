@@ -72,6 +72,10 @@ def imagesc( img, ax=None, cmap=None, balanced=None, aspect=None, max=None, colr
         figgy = plt.gca()
         figgy.axes.xaxis.set_ticklabels([])
         figgy.axes.yaxis.set_ticklabels([])
+    
+    if not axis_labels and ax is not None:
+        ax.set_xticks([])
+        ax.set_yticks([])
 # END imagesc
 
 def plot_aligned_filters(models, model_names=None, figsize=(10,5), cmap='gray'):
