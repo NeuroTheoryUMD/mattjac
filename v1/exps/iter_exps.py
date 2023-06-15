@@ -9,7 +9,7 @@ def tconv_scaffold_iter_expanded():
     lgn_layer = m.TemporalConvolutionalLayer(
         num_filters=4,
         num_inh=2,
-        filter_dims=[1, 17, 1, 14-3],
+        filter_dims=[1, 17, 1, 14-5],
         window='hamming',
         NLtype=m.NL.relu,
         norm_type=m.Norm.unit,
@@ -44,7 +44,7 @@ def tconv_scaffold_iter_expanded():
         bias=False,
         initialize_center=True,
         output_norm='batch',
-        num_iter=3,
+        num_iter=5,
         output_config='full',
         reg_vals={'d2xt': 0.0001,
                   'center': 0,
@@ -96,7 +96,7 @@ trainer_params = r.TrainerParams(num_lags=num_lags,
                                  bayes_num_steps=0,
                                  num_initializations=1)
 
-runner = r.Runner(experiment_name='iter_exps10_3iters',
+runner = r.Runner(experiment_name='iter_exps10_5iters',
                   experiment_desc='Adding the LGN layer to the scaffold for proper weighting.',
                   dataset_expt=expt,
                   dataset_on_gpu=False,

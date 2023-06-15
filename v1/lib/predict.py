@@ -133,7 +133,7 @@ def predict(model, inps=None, robs=None, dataset=None, verbose=False, calc_jacob
                 if isinstance(model.networks[ni].layers[li], mod.TemporalConvolutionalLayer):
                     #jacobian = time x (filter_lags x num_filters x input_width) x input_size
                     num_filters = model.networks[ni].layers[li].params['num_filters']
-                    filter_lags = 4
+                    filter_lags = 6
                     #stacked_jacobians = stacked_jacobians.reshape(num_timepoints, filter_lags, num_filters, input_width, -1)
                     stacked_jacobians = stacked_jacobians.reshape(num_timepoints, num_filters, input_width, filter_lags, -1)
                 elif isinstance(model.networks[ni].layers[li], mod.IterativeTemporalConvolutionalLayer):
@@ -187,7 +187,7 @@ def predict(model, inps=None, robs=None, dataset=None, verbose=False, calc_jacob
             if isinstance(model.networks[ni].layers[li], mod.TemporalConvolutionalLayer):
                 #jacobian = time x (filter_lags x num_filters x input_width) x input_size
                 num_filters = model.networks[ni].layers[li].params['num_filters']
-                filter_lags = 4
+                filter_lags = 6
                 output = output.reshape(num_timepoints, num_filters, input_width, filter_lags, -1)
             elif isinstance(model.networks[ni].layers[li], mod.IterativeTemporalConvolutionalLayer):
                 num_filters = model.networks[ni].layers[li].params['num_filters']
