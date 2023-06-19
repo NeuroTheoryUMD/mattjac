@@ -53,7 +53,7 @@ def _get_scaffold_outputs(model, all_outputs, inps, ni, li, input_width):
         return all_outputs[ni-1][-1]
 
 @torch.no_grad() # disable gradient calculation during inference
-def predict(model, inps=None, robs=None, dataset=None, verbose=False, calc_jacobian=False, max_network_and_layer=None) -> Results:
+def predict(model, inps=None, robs=None, dataset=None, verbose=False, calc_jacobian=False, max_network_and_layer=None, default_filter_lags=4) -> Results:
     """
     Predict the model outputs for the given inputs.
     Args:
@@ -133,8 +133,8 @@ def predict(model, inps=None, robs=None, dataset=None, verbose=False, calc_jacob
                 if isinstance(model.networks[ni].layers[li], mod.TemporalConvolutionalLayer):
                     #jacobian = time x (filter_lags x num_filters x input_width) x input_size
                     num_filters = model.networks[ni].layers[li].params['num_filters']
-                    filter_lags = 6
                     #stacked_jacobians = stacked_jacobians.reshape(num_timepoints, filter_lags, num_filters, input_width, -1)
+                    filter_lags = default_filter_lags
                     stacked_jacobians = stacked_jacobians.reshape(num_timepoints, num_filters, input_width, filter_lags, -1)
                 elif isinstance(model.networks[ni].layers[li], mod.IterativeTemporalConvolutionalLayer):
                     num_filters = model.networks[ni].layers[li].params['num_filters']
@@ -187,7 +187,7 @@ def predict(model, inps=None, robs=None, dataset=None, verbose=False, calc_jacob
             if isinstance(model.networks[ni].layers[li], mod.TemporalConvolutionalLayer):
                 #jacobian = time x (filter_lags x num_filters x input_width) x input_size
                 num_filters = model.networks[ni].layers[li].params['num_filters']
-                filter_lags = 6
+                filter_lags = default_filter_lags
                 output = output.reshape(num_timepoints, num_filters, input_width, filter_lags, -1)
             elif isinstance(model.networks[ni].layers[li], mod.IterativeTemporalConvolutionalLayer):
                 num_filters = model.networks[ni].layers[li].params['num_filters']
