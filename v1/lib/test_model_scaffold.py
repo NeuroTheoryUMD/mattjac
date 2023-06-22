@@ -1,6 +1,7 @@
 import sys
 # not best practice, but makes it easier to import from subdirectory
 sys.path.insert(0, '../')
+sys.path.insert(0, './')
 
 import model as m
 import NDNT.modules.layers as l
@@ -23,7 +24,7 @@ def create_scaffold_single_network(verbose=False):
         filter_dims=21,
         window='hamming',
         output_norm='batch',
-        num_inh=4)
+        num_inh_percent=0.5)
     conv_layer1 = m.ConvolutionalLayer().like(conv_layer0)
     conv_layer1.params['num_filters'] = 8
     conv_layer1.params['num_inh'] = 4

@@ -95,7 +95,7 @@ def _convert_params(internal_layer_type,
                     window=None,
                     padding=None,
                     num_filters=None,
-                    num_inh=None,
+                    num_inh_percent=None,
                     bias=None,
                     norm_type=None,
                     NLtype=None,
@@ -117,7 +117,7 @@ def _convert_params(internal_layer_type,
     if window is not None: params['window'] = window
     if padding is not None: params['padding'] = padding
     if num_filters is not None: params['num_filters'] = num_filters
-    if num_inh is not None: params['num_inh'] = num_inh
+    if num_inh_percent is not None: params['num_inh_percent'] = num_inh_percent
     if bias is not None: params['bias'] = bias
     if norm_type is not None: params['norm_type'] = norm_type.value
     if NLtype is not None: params['NLtype'] = NLtype.value
@@ -137,7 +137,7 @@ def _convert_params(internal_layer_type,
 class Layer:
     def __init__(self,
                  num_filters:int=None,
-                 num_inh:int=None,
+                 num_inh_percent:float=None,
                  bias:bool=None,
                  norm_type:Norm=None,
                  NLtype:NL=None,
@@ -148,7 +148,7 @@ class Layer:
                  temporal_tent_spacing:int=None):
         self.params = _convert_params(internal_layer_type=NDNLayer,
                                       num_filters=num_filters,
-                                      num_inh=num_inh,
+                                      num_inh_percent=num_inh_percent,
                                       bias=bias,
                                       norm_type=norm_type,
                                       NLtype=NLtype,
@@ -164,12 +164,6 @@ class Layer:
         #       from the Model API
         # like Layer().use_weights(prev_layer.get_layer('drift'))
         # or something like this...
-    
-    # make this layer like another layer
-    def like(self, layer):
-        # copy the other layer params into this layer's params
-        self.params = copy.deepcopy(layer.params)
-        return self
     
     def _get_weights(self):
         return self.network.model.NDN.networks[self.network.index].layers[self.index].get_weights()
@@ -211,7 +205,7 @@ class ConvolutionalLayer:
                  window=None,
                  padding='same', # default in the NDN
                  num_filters=None,
-                 num_inh=0,
+                 num_inh_percent=0.,
                  bias=False,
                  norm_type=Norm.none,
                  NLtype=NL.linear,
@@ -225,7 +219,7 @@ class ConvolutionalLayer:
                                       window=window,
                                       padding=padding,
                                       num_filters=num_filters,
-                                      num_inh=num_inh,
+                                      num_inh_percent=num_inh_percent,
                                       bias=bias,
                                       norm_type=norm_type,
                                       NLtype=NLtype,
@@ -236,12 +230,6 @@ class ConvolutionalLayer:
                                       temporal_tent_spacing=temporal_tent_spacing)
         self.network = None # to be able to point to the network we are a part of
         self.index = None # to be able to point to the layer we are a part of in the NDN
-
-    # make this layer like another layer
-    def like(self, layer):
-        # copy the other layer params into this layer's params
-        self.params = copy.deepcopy(layer.params)
-        return self
 
     def _get_weights(self):
         return self.network.model.NDN.networks[self.network.index].layers[self.index].get_weights()
@@ -255,7 +243,7 @@ class IterativeConvolutionalLayer:
                  window=None,
                  padding='same', # default in the NDN
                  num_filters=None,
-                 num_inh=0,
+                 num_inh_percent=0.0,
                  bias=False,
                  norm_type=Norm.none,
                  NLtype=NL.linear,
@@ -272,7 +260,7 @@ class IterativeConvolutionalLayer:
                                       window=window,
                                       padding=padding,
                                       num_filters=num_filters,
-                                      num_inh=num_inh,
+                                      num_inh_percent=num_inh_percent,
                                       bias=bias,
                                       norm_type=norm_type,
                                       NLtype=NLtype,
@@ -287,12 +275,6 @@ class IterativeConvolutionalLayer:
         self.network = None # to be able to point to the network we are a part of
         self.index = None # to be able to point to the layer we are a part of in the NDN
 
-    # make this layer like another layer
-    def like(self, layer):
-        # copy the other layer params into this layer's params
-        self.params = copy.deepcopy(layer.params)
-        return self
-
     def _get_weights(self):
         return self.network.model.NDN.networks[self.network.index].layers[self.index].get_weights()
 
@@ -301,12 +283,12 @@ class IterativeConvolutionalLayer:
 
 class TemporalConvolutionalLayer:
     def __init__(self,
-                 filter_dims=None,
+                 filter_width=None,
                  num_lags=None,
                  window=None,
                  padding='spatial', # default in the NDN
                  num_filters=None,
-                 num_inh=0,
+                 num_inh_percent=0.0,
                  bias=False,
                  norm_type=Norm.none,
                  NLtype=NL.linear,
@@ -317,12 +299,12 @@ class TemporalConvolutionalLayer:
                  temporal_tent_spacing:int=None):
         
         self.params = _convert_params(internal_layer_type=TconvLayer,
-                                      filter_dims=filter_dims,
+                                      filter_width=filter_width,
                                       num_lags=num_lags,
                                       window=window,
                                       padding=padding,
                                       num_filters=num_filters,
-                                      num_inh=num_inh,
+                                      num_inh_percent=num_inh_percent,
                                       bias=bias,
                                       norm_type=norm_type,
                                       NLtype=NLtype,
@@ -334,12 +316,6 @@ class TemporalConvolutionalLayer:
         self.network = None # to be able to point to the network we are a part of
         self.index = None # to be able to point to the layer we are a part of in the NDN
 
-    # make this layer like another layer
-    def like(self, layer):
-        # copy the other layer params into this layer's params
-        self.params = copy.deepcopy(layer.params)
-        return self
-
     def _get_weights(self):
         return self.network.model.NDN.networks[self.network.index].layers[self.index].get_weights()
 
@@ -348,12 +324,12 @@ class TemporalConvolutionalLayer:
 
 class IterativeTemporalConvolutionalLayer:
     def __init__(self,
-                 num_lags,
-                 filter_dims,
-                 window,
-                 num_filters,
+                 num_lags=None,
+                 filter_width=None,
+                 window=None,
+                 num_filters=None,
                  padding='spatial', # default in the NDN
-                 num_inh=0,
+                 num_inh_percent=0.0,
                  bias=False,
                  norm_type=Norm.none,
                  NLtype=NL.linear,
@@ -366,11 +342,11 @@ class IterativeTemporalConvolutionalLayer:
                  output_config='last',
                  res_layer=True,):
         self.params = _convert_params(internal_layer_type=IterTlayer,
-                                      filter_width=filter_dims,
+                                      filter_width=filter_width,
                                       window=window,
                                       padding=padding,
                                       num_filters=num_filters,
-                                      num_inh=num_inh,
+                                      num_inh_percent=num_inh_percent,
                                       bias=bias,
                                       norm_type=norm_type,
                                       NLtype=NLtype,
@@ -385,12 +361,6 @@ class IterativeTemporalConvolutionalLayer:
                                       num_lags=num_lags)
         self.network = None # to be able to point to the network we are a part of
         self.index = None # to be able to point to the layer we are a part of in the NDN
-
-    # make this layer like another layer
-    def like(self, layer):
-        # copy the other layer params into this layer's params
-        self.params = copy.deepcopy(layer.params)
-        return self
 
     def _get_weights(self):
         return self.network.model.NDN.networks[self.network.index].layers[self.index].get_weights()
@@ -574,6 +544,29 @@ def _Network_to_FFnetwork(network):
             # skip internal params
             if not 'internal' in k:
                 sanitized_layer_params[k] = v
+                
+        # convert the num_inh_percent to num_inh
+        if 'num_inh_percent' in sanitized_layer_params \
+                and sanitized_layer_params['num_inh_percent'] is not None \
+                and sanitized_layer_params['num_inh_percent'] > 0:
+            num_inh = int(sanitized_layer_params['num_inh_percent'] * sanitized_layer_params['num_filters'])
+            sanitized_layer_params['num_inh'] = num_inh
+            del sanitized_layer_params['num_inh_percent']
+
+        # populate the filter_dims parameter for the TemporalConvolutionalLayer
+        if layer_type == TconvLayer:
+            sanitized_layer_params['filter_dims'] = [None, sanitized_layer_params['filter_width'], 1, sanitized_layer_params['num_lags']]
+            del sanitized_layer_params['filter_width']
+            del sanitized_layer_params['num_lags']
+            
+            if li == 0:
+                sanitized_layer_params['filter_dims'][0] = 1
+            else:
+                # set the filter_dims num_channels to the previous layer's num_filters
+                num_iter = 1
+                if 'num_iter' in NDNLayers[-1]:
+                    num_iter = NDNLayers[-1]['num_iter']
+                sanitized_layer_params['filter_dims'][0] = NDNLayers[-1]['num_filters']*num_iter
 
         layer_dict = layer_type.layer_dict(**sanitized_layer_params)
         # NDN has a bug where certain parameters don't get copied over from the constructor

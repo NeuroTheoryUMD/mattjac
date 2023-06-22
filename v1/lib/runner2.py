@@ -28,6 +28,7 @@ from NDNT.modules.layers import *
 from NDNT.networks import *
 from NTdatasets.generic import GenericDataset
 
+import predict
 import model as m
 import experiment as exp
 
@@ -35,14 +36,22 @@ import experiment as exp
 class TrainerType(Enum):
     lbfgs = 0
     adam = 1
+    
+class RandomType(Enum):
+    float = 0
+    int = 1
+    odd = 2
+    even = 3
 
 
 class Sample:
-    def __init__(self, typ, start, end, values):
+    def __init__(self, default, typ, start=None, end=None, values=None, link_id=None):
+        self.default = default
         self.typ = typ
         self.start = start
         self.end = end
         self.values = values
+        self.link_id = link_id
         
 
 def update_model_params(model, param_keys, param_vals):
@@ -79,6 +88,7 @@ def get_model_params(model_template):
                 if param_key == 'reg_vals':
                     if isinstance(param_val, dict):
                         for sub_key, sub_val in param_val.items():
+                            # TODO: we need to go one level deeper to handle the BoundaryCondition case
                             param_keys.append((ni, li, param_key, sub_key))
                             param_vals.append(sub_val)
                     else:
@@ -88,6 +98,44 @@ def get_model_params(model_template):
                     param_keys.append((ni, li, param_key, None))
                     param_vals.append(param_val)
     return param_keys, param_vals
+
+def _adjust_param_with_constraints(param, sample_val):
+    assert isinstance(sample_val, Sample)
+    if sample_val.typ == RandomType.float:
+        return param
+    elif sample_val.typ == RandomType.int:
+        return int(round(param))
+    elif sample_val.typ == RandomType.odd:
+        if round(param) % 2 == 0:
+            return int(round(param) + 1)
+        else:
+            return int(round(param))
+    elif sample_val.typ == RandomType.even:
+        if round(param) % 2 == 1:
+            return int(round(param) + 1)
+        else:
+            return int(round(param))
+    assert False, "should not get here"
+
+def _generate_random_with_constraints(param):
+    assert isinstance(param, Sample)
+    sample_val = None
+    if param.typ == RandomType.float:
+        sample_val = np.random.uniform(param.start, param.end, 1)[0]
+    elif param.typ == RandomType.int:
+        sample_val = np.random.randint(param.start, param.end, 1)[0]
+    elif param.typ == RandomType.odd:
+        # only get odd numbers
+        sample_val = np.random.randint(param.start, param.end, 1)[0]
+        while sample_val % 2 == 0:
+            sample_val = np.random.randint(param.start, param.end, 1)[0]
+    elif param.typ == RandomType.even:
+        # only get even numbers
+        sample_val = np.random.randint(param.start, param.end, 1)[0]
+        while sample_val % 2 == 1:
+            sample_val = np.random.randint(param.start, param.end, 1)[0]
+    assert sample_val is not None
+    return sample_val
 
 class HyperparameterBayesianOptimization:
     def __init__(self, model_template, init_num_samples=2, 
@@ -112,7 +160,7 @@ class HyperparameterBayesianOptimization:
         for idx, v in enumerate(self.template_param_vals):
             if isinstance(v, Sample):
                 # add the default value
-                self.default_param_vals[idx] = v.values[0]
+                self.default_param_vals[idx] = v.default
 
         # Create models for each param val
         # keep track of the keys for the sample params
@@ -129,7 +177,7 @@ class HyperparameterBayesianOptimization:
                 # set the number of fixed params
                 if self.num_fixed_params is None:
                     self.num_fixed_params = len(v.values)
-                elif len(v.values) != self.num_fixed_params:
+                elif v.values is not None and len(v.values) != self.num_fixed_params:
                     raise ValueError("All ValueLists must have the same length")
 
                 # add the sample param key
@@ -140,41 +188,65 @@ class HyperparameterBayesianOptimization:
                 
                 self.sample_template_param_vals.append(v)
         
+        # hack to handle if no samples are provided, just use what is there
         if self.num_fixed_params is None:
             self.num_fixed_params = 1
+            
+        print('num fixed params', self.num_fixed_params)
 
         # make the models for the fixed lists of values
+        linked_fixed_params = {} # map of link_id to generated value
         for model_idx in range(self.num_fixed_params):
             sample_param_vals = []
             model_params = copy.deepcopy(self.template_param_vals)
             for idx, param in enumerate(self.template_param_vals):
                 if isinstance(param, Sample):
-                    model_params[idx] = param.values[model_idx]
-                    sample_param_vals.append(param.values[model_idx])
-            self.sample_param_valses.append(sample_param_vals)
-            # add the model a number of times equal to the number of initializations
-            for _ in range(num_initializations):
-                print('here1')
-                self.add_model_with_param_vals(self.param_keys, model_params)
-
-        # make the initial models for the Samples
-        for i in range(init_num_samples):
-            sample_param_vals = []
-            model_params = copy.deepcopy(self.template_param_vals)
-            for idx, param in enumerate(self.template_param_vals):
-                if isinstance(param, Sample):
-                    sample_val = np.random.uniform(param.start, param.end, 1)[0]
+                    if param.link_id is not None:
+                        # check if the link_id has been generated
+                        if param.link_id not in linked_fixed_params:
+                            # generate the value
+                            linked_fixed_params[param.link_id] = param.values[model_idx]
+                            sample_val = linked_fixed_params[param.link_id]
+                        else:
+                            sample_val = linked_fixed_params[param.link_id]
+                    else:
+                        sample_val = param.values[model_idx]
                     model_params[idx] = sample_val
                     sample_param_vals.append(sample_val)
             self.sample_param_valses.append(sample_param_vals)
             # add the model a number of times equal to the number of initializations
             for _ in range(num_initializations):
-                print('here2')
+                self.add_model_with_param_vals(self.param_keys, model_params)
+
+        # make the initial models for the Samples
+        linked_random_params = {} # map of link_id to generated value
+        for i in range(init_num_samples):
+            sample_param_vals = []
+            model_params = copy.deepcopy(self.template_param_vals)
+            for idx, param in enumerate(self.template_param_vals):
+                if isinstance(param, Sample):
+                    if param.link_id is not None:
+                        # check if the link_id has been generated
+                        if param.link_id not in linked_random_params:
+                            # generate the value
+                            linked_random_params[param.link_id] = _generate_random_with_constraints(param)
+                            sample_val = linked_random_params[param.link_id]
+                        else:
+                            sample_val = linked_random_params[param.link_id]
+                    else:
+                        sample_val = _generate_random_with_constraints(param)
+                    model_params[idx] = sample_val
+                    sample_param_vals.append(sample_val)
+            self.sample_param_valses.append(sample_param_vals)
+            # add the model a number of times equal to the number of initializations
+            for _ in range(num_initializations):
                 self.add_model_with_param_vals(self.param_keys, model_params)
                 
         self.total_num_samples = len(self.models) + self.bayes_num_steps
 
     def update_models(self, prev_trials):
+        uncertainty_penalty = 0.01
+        
         # Retrieve hyperparameters and performances of previous trials
         X = np.array([get_model_params_with_keys(trial.model, self.sample_template_param_keys) for trial in prev_trials])
         y = np.array([np.mean(trial.LLs) for trial in prev_trials])
@@ -198,24 +270,43 @@ class HyperparameterBayesianOptimization:
             if sigma == 0:
                 return -np.inf
             else:
+                # gamma is the Expected Improvement in units of standard deviation
                 gamma = (mu - np.max(y)) / sigma
-                return -1 * (mu - np.max(y)) - 0.01 * (sigma * (norm.cdf(gamma) + gamma * norm.pdf(gamma)))
+                # return the negative Expected Improvement (to minimize)
+                # add a small penalty for high gamma values,
+                # to avoid sampling in regions with high uncertainty
+                return -1 * (mu - np.max(y)) - uncertainty_penalty * (sigma * (norm.cdf(gamma) + gamma * norm.pdf(gamma)))
     
         # Step 2: Find the hyperparameters that perform best on the surrogate
         res = minimize(acquisition, x0=np.random.uniform(size=len(bounds)), bounds=[(0, 1)] * len(bounds), method='L-BFGS-B')
     
         # The new model's hyperparameters (denormalize back to the original range)
         sample_param_vals = scaler.inverse_transform(res.x.reshape(1, -1))[0]
-        self.sample_param_valses.append(sample_param_vals)
     
         # copy the param_keys and replace the sample param keys with the sample param vals
         param_vals = copy.deepcopy(self.default_param_vals)
+        linked_random_params = {} # map of link_id to generated value
         for i,k in enumerate(self.sample_template_param_keys):
             idx = self.sample_param_key_to_idx[k] # get the index of the sample param
-            assert isinstance(self.template_param_vals[idx], Sample)
-            typ = self.template_param_vals[idx].typ # get the type of the sample param
-            # cast the sample param val to the correct type (int, float, etc.)
-            param_vals[idx] = typ(sample_param_vals[i])
+            template_param_val = self.sample_template_param_vals[i]
+            assert isinstance(template_param_val, Sample)
+            if template_param_val.link_id is not None:
+                # check if the link_id has been generated
+                if template_param_val.link_id not in linked_random_params:
+                    # generate the value
+                    sample_val = _adjust_param_with_constraints(sample_param_vals[i], template_param_val)
+                    linked_random_params[template_param_val.link_id] = sample_val
+                else:
+                    sample_val = linked_random_params[template_param_val.link_id]
+            else:
+                sample_val = _adjust_param_with_constraints(sample_param_vals[i], template_param_val)
+                
+            sample_param_vals[i] = sample_val # NOTE: sample_param_vals is a float array            
+            param_vals[idx] = sample_val
+
+        # add the updated param vals
+        # TODO: we could consider adding the raw value, before constraints
+        self.sample_param_valses.append(sample_param_vals)
     
         # add the new model
         self.add_model_with_param_vals(self.param_keys, param_vals)
@@ -230,7 +321,6 @@ class HyperparameterBayesianOptimization:
         return self.current_idx < self.total_num_samples
 
     def get_next(self, prev_trials):
-        print('current_idx', self.current_idx, 'total_num_samples', self.total_num_samples)
         # update the models with the previous trials
         if len(prev_trials) >= self.init_num_samples + self.num_fixed_params:
             self.update_models(prev_trials)
@@ -305,30 +395,36 @@ class Runner:
             self.overwrite_mode = exp.Overwrite.overwrite
         else:
             self.overwrite_mode = exp.Overwrite.append
-            # check if the experiment is finished (e.g. there is a 'finished' file in the directory)
-            if os.path.exists(os.path.join(self.experiment_location, self.experiment_name, 'finished')):
-                self.experiment_finished = True
-                return
-            # check the experiment folder for existing trials, and get the latest trial number
-            try:
-                # TODO: populate the HP walker when loading the experiment
-                self.experiment = exp.load(self.experiment_name, experiment_location=self.experiment_location, datadir=self.datadir)
-                # populate the generate_trial function, since it is not serialized
-                self.experiment.generate_trial = lambda prev_trials: self.generate_trial(prev_trials)
-                self.hyperparameter_walker = self.experiment.hyperparameter_walker
-                # get the latest trial number
-                self.initial_trial_idx = len(self.experiment.trials)
-            except ValueError:
-                # no existing experiment found
-                # make the experiment
-                self.experiment = exp.Experiment(name=self.experiment_name,
-                                                 description=self.experiment_desc,
-                                                 generate_trial=lambda prev_trials: self.generate_trial(prev_trials),
-                                                 hyperparameter_walker=self.hyperparameter_walker,
-                                                 experiment_location=self.experiment_location,
-                                                 overwrite=self.overwrite_mode)
-                
-                
+        
+        # check if the experiment is finished (e.g. there is a 'finished' file in the directory)
+        if os.path.exists(os.path.join(self.experiment_location, self.experiment_name, 'finished')):
+            self.experiment_finished = True
+            return
+        # check the experiment folder for existing trials, and get the latest trial number
+        try:
+            self.experiment = exp.load(self.experiment_name, experiment_location=self.experiment_location, datadir=self.datadir)
+            # populate the generate_trial function, since it is not serialized
+            self.experiment.generate_trial = lambda prev_trials: self.generate_trial(prev_trials)
+            self.hyperparameter_walker = self.experiment.hyperparameter_walker
+            # get the latest trial number
+            self.initial_trial_idx = len(self.experiment.trials)
+        except ValueError:
+            # no existing experiment found
+            # make the experiment
+            self.experiment = exp.Experiment(name=self.experiment_name,
+                                             description=self.experiment_desc,
+                                             generate_trial=lambda prev_trials: self.generate_trial(prev_trials),
+                                             hyperparameter_walker=self.hyperparameter_walker,
+                                             experiment_location=self.experiment_location,
+                                             overwrite=self.overwrite_mode)
+
+        # create the hyperparameter walker if it doesn't exist
+        if self.hyperparameter_walker is None:
+            self.hyperparameter_walker = HyperparameterBayesianOptimization(self.model_template,
+                                                                            init_num_samples=self.trainer_params.init_num_samples,
+                                                                            bayes_num_steps=self.trainer_params.bayes_num_steps,
+                                                                            num_initializations=self.trainer_params.num_initializations)
+            
         # load the dataset
         print('Loading dataset for', self.dataset_expt)
         self.dataset_params = {
@@ -357,19 +453,12 @@ class Runner:
 
     def generate_trial(self, prev_trials):
         trial_idx = self.initial_trial_idx
-        model_template = self.model_template
-    
-        # create the hyperparameter walker if it doesn't exist
-        if self.hyperparameter_walker is None:
-            self.hyperparameter_walker = HyperparameterBayesianOptimization(model_template,
-                                                                            init_num_samples=self.trainer_params.init_num_samples,
-                                                                            bayes_num_steps=self.trainer_params.bayes_num_steps,
-                                                                            num_initializations=self.trainer_params.num_initializations)
         
         while self.hyperparameter_walker.has_next():
             # TODO: combine the runner and the experiment classes
             #       so that we can use the experiment class to run the model
             #       and this will make it easier to save and restore the state
+            
             # save the current hyperparameter_walker state
             with open(os.path.join(self.experiment_location, self.experiment_name, 'hyperparameter_walker.pickle'), 'wb') as f:
                 pickle.dump(self.hyperparameter_walker, f)
@@ -378,6 +467,14 @@ class Runner:
 
             # update the model output neurons
             model.update_num_neurons(self.expt_dataset.NC)
+
+            # validate the model before trying to fit it
+            for ni in range(len(model.networks)):
+                for li in range(len(model.networks[ni].layers)):
+                    print('N', ni, 'L', li, model.NDN.networks[ni].layers[li].input_dims, '-->', model.NDN.networks[ni].layers[li].output_dims)
+            
+            # TODO: make this work to allow for a 'dry-run' before training to aid in debugging       
+            #results = predict.predict(model, dataset=self.expt_dataset[:1], verbose=True)
             
             # create the trainer
             if self.trainer_params.trainer_type == TrainerType.lbfgs:
@@ -398,6 +495,7 @@ class Runner:
                     batch_size=self.trainer_params.batch_size,
                     learning_rate=self.trainer_params.learning_rate,
                     early_stopping_patience=self.trainer_params.early_stopping_patience,
+                    max_epochs=self.trainer_params.max_epochs,
                     weight_decay=self.trainer_params.weight_decay)
                 fit_pars['verbose'] = True
             fit_pars['is_multiexp'] = self.trainer_params.is_multiexp
