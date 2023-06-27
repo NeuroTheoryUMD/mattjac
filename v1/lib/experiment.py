@@ -53,14 +53,13 @@ def _load_trial(trial_name, experiment_folder, datadir=None, lazy=True): # lazy=
     with open(os.path.join(trial_directory, 'trial_info.pickle'), 'rb') as f:
         trial_info = pickle.load(f)
     
-    # set the datadir in the trial_info.dataset_params
-    if datadir is not None:
-        trial_info.dataset_params['datadir'] = datadir
+    # update the datadir
+    trial_info.data_preprocessor.datadir = datadir
     
     # load the dataset
     dataset = None
     if not lazy:
-        dataset = trial_info.dataset_class(**trial_info.dataset_params)
+        dataset = trial_info.data_preprocessor.load()
         
     trial = Trial(trial_info=trial_info,
                   model=model,
@@ -132,14 +131,12 @@ class TrialInfo:
                  name:str,
                  description:str,
                  trial_params:dict,
-                 dataset_params:dict,
-                 dataset_class,
+                 data_preprocessor,
                  fit_params:dict):
         self.name = name
         self.description = description
         self.trial_params = trial_params
-        self.dataset_params = dataset_params
-        self.dataset_class = dataset_class
+        self.data_preprocessor = data_preprocessor
         self.fit_params = fit_params
 
 
@@ -171,7 +168,7 @@ class Trial:
     def _get_dataset(self):
         if self._dataset is None:
             print('lazy loading dataset')
-            self._dataset = self.trial_info.dataset_class(**self.trial_info.dataset_params)
+            self._dataset = self.trial_info.data_preprocessor.load()
         return self._dataset
 
     def losses(self, loss_type):

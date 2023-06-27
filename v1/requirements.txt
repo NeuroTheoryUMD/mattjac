@@ -1,0 +1,13 @@
+numpy
+scipy
+scikit-learn
+scikit-image
+pandas
+umap-learn
+seaborn
+matplotlib
+jupyter
+h5py
+tensorboard
+dill
+plotly

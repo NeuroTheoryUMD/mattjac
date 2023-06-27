@@ -178,6 +178,51 @@ class Layer:
     subunit_weights = property(_subunit_weights)
 
 
+class TemporalLayer:
+    def __init__(self,
+                 num_filters:int=None,
+                 num_inh_percent:float=None,
+                 num_lags:int=None,
+                 bias:bool=None,
+                 norm_type:Norm=None,
+                 NLtype:NL=None,
+                 initialize_center:bool=None,
+                 reg_vals:dict=None,
+                 output_norm:bool=None,
+                 pos_constraint:bool=None,
+                 temporal_tent_spacing:int=None):
+        self.params = _convert_params(internal_layer_type=Tlayer,
+                                      num_filters=num_filters,
+                                      num_inh_percent=num_inh_percent,
+                                      num_lags=num_lags,
+                                      bias=bias,
+                                      norm_type=norm_type,
+                                      NLtype=NLtype,
+                                      initialize_center=initialize_center,
+                                      reg_vals=reg_vals,
+                                      output_norm=output_norm,
+                                      pos_constraint=pos_constraint,
+                                      temporal_tent_spacing=temporal_tent_spacing)
+        self.network = None # to be able to point to the network we are a part of
+        self.index = None # to be able to point to the layer we are a part of in the Network
+        # TODO: be able to set this layer's weights as the 
+        #       weights of a previous layer that maybe we can access by name
+        #       from the Model API
+        # like Layer().use_weights(prev_layer.get_layer('drift'))
+        # or something like this...
+    def _get_weights(self):
+        return self.network.model.NDN.networks[self.network.index].layers[self.index].get_weights()
+
+    def _subunit_weights(self):
+        weights = self.network.model.NDN.networks[self.network.index].layers[self.index].get_weights()
+        # reshape weights by the number of filters in this layer
+        return np.reshape(weights, (self.params['num_filters'], -1))
+
+    # define property to make it easier to remember
+    weights = property(_get_weights)
+    subunit_weights = property(_subunit_weights)
+
+
 # layer subclasses
 class PassthroughLayer:
     def __init__(self, 
@@ -383,6 +428,10 @@ class Input: # holds the input info
         # set the input_dims of the network to be the desired Input.input_dims
         network.input_covariate = self.covariate
         network.layers[0].params['input_dims'] = self.input_dims
+        # if the first layer is a Tlayer, then we need to change the last dimension to be 1
+        if network.layers[0].params['internal_layer_type'] is Tlayer:
+            print('changing last dimension of input_dims to be 1')
+            network.layers[0].params['input_dims'][-1] = 1
         self.output = network
         network.inputs.append(self)
 
@@ -407,7 +456,48 @@ class Output: # holds the output info
     
     def __str__(self):
         return 'Output name='+self.name+', num_neurons='+str(self.num_neurons)
-    
+
+
+class Concat:
+    def __init__(self,
+                 networks=None,
+                 NLtype=NL.softplus,
+                 bias=False):
+        # TODO: this is a little hacky
+        num_filters = None
+        if networks is not None:
+            num_filters = networks[0].layers[-1].params['num_filters']
+        
+        self.name = '.'
+        if networks is not None: # TODO: kind of a hack
+            self.name = '.'.join(network.name for network in networks)
+
+        self.index = -1 # index of network in the list of networks
+        self.inputs = networks
+        self.output = None
+
+        # NDN params
+        self.input_covariate = None # this should always be None for an Operator
+        self.ffnet_type = NetworkType.normal.value # normal is used for concatenation
+        self.layers = [PassthroughLayer(num_filters=num_filters, NLtype=NLtype, bias=bias)]
+
+        # points its parents (the things to be summed) to this node
+        if networks is not None:
+            for network in networks:
+                network.output = [self]
+
+    def to(self, network):
+        # if we are going to an output, update our num_filters to be the num_neurons
+        if isinstance(network, Output):
+            self.layers[-1].params['num_filters'] = network.num_neurons
+        self.output = network
+        network.inputs.append(self)
+
+    def __str__(self):
+        if self.inputs is not None:
+            return 'Concat name='+self.name+' '+str(self.index)+', inputs='+','.join([str([inp]) for inp in self.inputs])
+        else:
+            return 'Concat name='+self.name+' '+str(self.index)
 
 class Add:
     def __init__(self, 
@@ -433,7 +523,7 @@ class Add:
         # NDN params
         self.input_covariate = None # this should always be None for an Operator
         self.ffnet_type = NetworkType.add.value
-        self.layers = [PassthroughLayer(num_filters=num_filters, NLtype=NLtype, bias=bias)]
+        self.layers = [Layer(num_filters=num_filters, NLtype=NLtype, bias=bias)]
 
         # points its parents (the things to be summed) to this node
         if networks is not None:
@@ -478,7 +568,7 @@ class Mult:
         # NDN params
         self.input_covariate = None # this should always be None for an Operator
         self.ffnet_type = NetworkType.mult.value
-        self.layers = [PassthroughLayer(num_filters=num_filters, NLtype=NLtype, bias=bias)]
+        self.layers = [Layer(num_filters=num_filters, NLtype=NLtype, bias=bias)]
         # points its parents (the things to be multiplied) to this node
         if networks is not None:
             for network in networks:
@@ -567,8 +657,13 @@ def _Network_to_FFnetwork(network):
                 if 'num_iter' in NDNLayers[-1]:
                     num_iter = NDNLayers[-1]['num_iter']
                 sanitized_layer_params['filter_dims'][0] = NDNLayers[-1]['num_filters']*num_iter
-
-        layer_dict = layer_type.layer_dict(**sanitized_layer_params)
+            layer_dict = layer_type.layer_dict(**sanitized_layer_params)
+        elif layer_type == ChannelLayer:
+            layer_dict = layer_type.layer_dict(**sanitized_layer_params)
+            layer_dict['weights_initializer'] = 'ones'
+        else:
+            layer_dict = layer_type.layer_dict(**sanitized_layer_params)
+        
         # NDN has a bug where certain parameters don't get copied over from the constructor
         # we need to set them separately from the constructor
         if 'reg_vals' in sanitized_layer_params:
@@ -604,7 +699,7 @@ def _Model_to_NDN(model, verbose):
         for i in range(len(model.networks)):
             print('---', model.networks[i].name, '---')
             pprint.pprint(ffnets[i])
-    return NDN.NDN(ffnet_list=ffnets)
+    return NDN.NDN(ffnet_list=ffnets, loss_type='poisson')
 
 
 class Model:
@@ -729,7 +824,7 @@ class Model:
         self._traverse(self.output, None, networks, verbose)
         return networks
 
-    def draw_network(self, verbose=False):
+    def draw(self, verbose=False):
         g = nx.DiGraph()
 
         for net in self.traverse(verbose):

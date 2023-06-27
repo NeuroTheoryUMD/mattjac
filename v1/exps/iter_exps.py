@@ -199,14 +199,14 @@ num_iter = 2
 
 trainer_params = r.TrainerParams(num_lags=num_lags,
                                  device="cuda:1", # use the second GPU
-                                 #max_epochs=1, # just for testing
+                                 max_epochs=1, # just for testing
                                  batch_size=6000,
                                  include_MUs=False,
-                                 init_num_samples=4,
-                                 bayes_num_steps=15,
+                                 init_num_samples=0,
+                                 bayes_num_steps=0,
                                  num_initializations=1)
 
-runner = r.Runner(experiment_name='iter_exps22',
+runner = r.Runner(experiment_name='iter_exps23',
                   experiment_desc='Trying stacked network.',
                   dataset_expt=expt,
                   dataset_on_gpu=True,

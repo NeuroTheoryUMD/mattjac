@@ -23,14 +23,13 @@ from torch.utils.data.dataset import Subset
 
 # NDN tools
 import NDNT.utils as utils # some other utilities
-from NTdatasets.cumming.monocular import MultiDataset
 from NDNT.modules.layers import *
 from NDNT.networks import *
 from NTdatasets.generic import GenericDataset
 
 import predict
-import model as m
 import experiment as exp
+import preprocessor as preproc
 
 
 class TrainerType(Enum):
@@ -338,6 +337,7 @@ class HyperparameterBayesianOptimization:
 class TrainerParams:
     def __init__(self,
                  batch_size=2000,
+                 history_size=100,
                  num_lags=10,
                  num_initializations=1,
                  max_epochs=None,
@@ -348,9 +348,11 @@ class TrainerParams:
                  device="cuda:1",
                  include_MUs=False,
                  is_multiexp=False,
+                 block_sample=False,
                  init_num_samples=2,
                  bayes_num_steps=10):
         self.batch_size = batch_size
+        self.history_size = history_size
         self.num_lags = num_lags
         self.num_initializations = num_initializations
         self.max_epochs = max_epochs
@@ -361,6 +363,7 @@ class TrainerParams:
         self.device = torch.device(device)
         self.include_MUs = include_MUs
         self.is_multiexp = is_multiexp
+        self.block_sample = block_sample
         self.init_num_samples = init_num_samples
         self.bayes_num_steps = bayes_num_steps
 
@@ -368,19 +371,20 @@ class Runner:
     def __init__(self, 
                  experiment_name, 
                  model_template, 
-                 dataset_expt, 
                  trainer_params,
                  trial_params,
+                 dataset_expt,
                  experiment_desc='', 
                  experiment_location='../experiments/',
                  dataset_on_gpu=True,
                  datadir='../Mdata/',
+                 dataset=None,
                  overwrite=False,
                  initial_trial_idx=0):
         self.experiment_name = experiment_name
         self.model_template = model_template
-        self.dataset_expt = dataset_expt
-        self.datadir = datadir
+        self.dataset_expt = dataset_expt # TODO: delete
+        self.datadir = datadir # TODO: delete
         self.trainer_params = trainer_params
         self.trial_params = trial_params
         self.initial_trial_idx = initial_trial_idx
@@ -424,31 +428,23 @@ class Runner:
                                                                             init_num_samples=self.trainer_params.init_num_samples,
                                                                             bayes_num_steps=self.trainer_params.bayes_num_steps,
                                                                             num_initializations=self.trainer_params.num_initializations)
-            
-        # load the dataset
-        print('Loading dataset for', self.dataset_expt)
-        self.dataset_params = {
-            'time_embed': True,
-            'datadir': self.datadir,
-            'filenames': self.dataset_expt,
-            'include_MUs': self.trainer_params.include_MUs,
-            'num_lags': self.trainer_params.num_lags
-        }
-        self.expt_dataset = MultiDataset(**self.dataset_params)
-        self.expt_dataset.set_cells()  # specify which cells to use (use all if no params provided)
 
-        # modify the model_template.output to match the data.NC before creating
-        print('Updating model output neurons to:', self.expt_dataset.NC)
-
-        assert self.expt_dataset.train_inds is not None, 'dataset is missing train_inds'
-        assert self.expt_dataset.val_inds is not None, 'dataset is missing val_inds'
+        # create the dataset
+        # TODO: don't hardcode this, change this to be passed in as a parameter, 
+        #       instead of the dataset_expt and datadir and trainer_params
+        self.data_preprocessor = preproc.ColorData(datadir=self.datadir, dirname=self.dataset_expt, device=trainer_params.device)
+        if dataset is None:
+            #self.data_preprocessor = preproc.MonocularData(datadir=self.datadir, dataset_expt=self.dataset_expt, trainer_params=self.trainer_params)
+            self.data = self.data_preprocessor.load()
+        else:
+            self.data = dataset
 
         # fit model on GPU if dataset is on GPU
         self.train_ds = None
         self.val_ds = None
-        if self.dataset_on_gpu:
-            self.train_ds = GenericDataset(self.expt_dataset[self.expt_dataset.train_inds], device=self.trainer_params.device)
-            self.val_ds = GenericDataset(self.expt_dataset[self.expt_dataset.val_inds], device=self.trainer_params.device)
+        if dataset_on_gpu:
+            self.train_ds = GenericDataset(self.data[self.data.train_inds], device=trainer_params.device)
+            self.val_ds = GenericDataset(self.data[self.data.val_inds], device=trainer_params.device)
 
 
     def generate_trial(self, prev_trials):
@@ -466,7 +462,11 @@ class Runner:
             model, sample_param_keys, sample_param_vals = self.hyperparameter_walker.get_next(prev_trials)
 
             # update the model output neurons
-            model.update_num_neurons(self.expt_dataset.NC)
+            # TODO: don't hardcode this
+            #model.update_num_neurons(self.data.NC)
+            
+            # set block_sample
+            model.NDN.block_sample = self.trainer_params.block_sample
 
             # validate the model before trying to fit it
             for ni in range(len(model.networks)):
@@ -482,7 +482,7 @@ class Runner:
                     optimizer_type='lbfgs',
                     tolerance_change=1e-10,
                     tolerance_grad=1e-10,
-                    history_size=10,
+                    history_size=self.trainer_params.history_size,
                     batch_size=self.trainer_params.batch_size,
                     max_epochs=self.trainer_params.max_epochs,
                     max_iter=10)
@@ -524,8 +524,7 @@ class Runner:
             trial_info = exp.TrialInfo(name=model.name + str(trial_idx),
                                        description=model.name,
                                        trial_params=trial_params,
-                                       dataset_params=self.dataset_params,
-                                       dataset_class=MultiDataset,
+                                       data_preprocessor=self.data_preprocessor,
                                        fit_params=fit_pars)
             
             if self.dataset_on_gpu:
@@ -538,9 +537,10 @@ class Runner:
             else:
                 trial = exp.Trial(trial_info=trial_info,
                                   model=model,
-                                  dataset=self.expt_dataset,
+                                  dataset=self.data,
+                                  # TODO: we need to handle val_inds and val_blks differently
                                   eval_function=lambda model, dataset, device: model.NDN.eval_models(
-                                      Subset(dataset, dataset.val_inds), null_adjusted=True))
+                                      dataset[dataset.val_blks], null_adjusted=True))
                 
             yield trial
             trial_idx += 1
