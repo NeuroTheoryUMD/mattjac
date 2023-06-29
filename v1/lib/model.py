@@ -90,6 +90,8 @@ class RegVal(Enum):
 # defines superset of all possible params
 # converts params that are provided to the value required by the NDN
 def _convert_params(internal_layer_type,
+                    internal_freeze_weights=False,
+                    internal_weights=None,
                     filter_dims=None,
                     filter_width=None,
                     window=None,
@@ -109,7 +111,9 @@ def _convert_params(internal_layer_type,
                     res_layer=None,
                     num_lags=None):
     params = {
-        'internal_layer_type': internal_layer_type
+        'internal_layer_type': internal_layer_type,
+        'internal_freeze_weights': internal_freeze_weights,
+        'internal_weights': internal_weights
     }
 
     if filter_dims is not None: params['filter_dims'] = filter_dims
@@ -145,8 +149,12 @@ class Layer:
                  reg_vals:dict=None,
                  output_norm:bool=None,
                  pos_constraint:bool=None,
-                 temporal_tent_spacing:int=None):
+                 temporal_tent_spacing:int=None,
+                 freeze_weights:bool=False,
+                 weights=None):
         self.params = _convert_params(internal_layer_type=NDNLayer,
+                                      internal_freeze_weights=freeze_weights,
+                                      internal_weights=weights,
                                       num_filters=num_filters,
                                       num_inh_percent=num_inh_percent,
                                       bias=bias,
@@ -190,8 +198,12 @@ class TemporalLayer:
                  reg_vals:dict=None,
                  output_norm:bool=None,
                  pos_constraint:bool=None,
-                 temporal_tent_spacing:int=None):
+                 temporal_tent_spacing:int=None,
+                 freeze_weights:bool=False,
+                 weights=None):
         self.params = _convert_params(internal_layer_type=Tlayer,
+                                      internal_freeze_weights=freeze_weights,
+                                      internal_weights=weights,
                                       num_filters=num_filters,
                                       num_inh_percent=num_inh_percent,
                                       num_lags=num_lags,
@@ -228,8 +240,10 @@ class PassthroughLayer:
     def __init__(self, 
                  num_filters=None,
                  bias=None,
-                 NLtype=None):
+                 NLtype=None,
+                 freeze_weights=False):
         self.params = _convert_params(internal_layer_type = ChannelLayer,
+                                      internal_freeze_weights=freeze_weights,
                                       num_filters = num_filters,
                                       bias = bias,
                                       NLtype = NLtype)
@@ -248,16 +262,16 @@ class ConvolutionalLayer:
     def __init__(self,
                  filter_dims=None,
                  window=None,
-                 padding='same', # default in the NDN
+                 padding=None,
                  num_filters=None,
-                 num_inh_percent=0.,
-                 bias=False,
-                 norm_type=Norm.none,
-                 NLtype=NL.linear,
-                 initialize_center=False,
+                 num_inh_percent=None,
+                 bias=None,
+                 norm_type=None,
+                 NLtype=None,
+                 initialize_center=None,
                  reg_vals=None,
                  output_norm=None,
-                 pos_constraint=False,
+                 pos_constraint=None,
                  temporal_tent_spacing:int=None):
         self.params = _convert_params(internal_layer_type=ConvLayer,
                                       filter_dims=filter_dims,
@@ -460,14 +474,15 @@ class Output: # holds the output info
 
 class Concat:
     def __init__(self,
+                 NLtype,
                  networks=None,
-                 NLtype=NL.softplus,
-                 bias=False):
+                 bias=None,
+                 freeze_weights=False):
         # TODO: this is a little hacky
         num_filters = None
         if networks is not None:
             num_filters = networks[0].layers[-1].params['num_filters']
-        
+
         self.name = '.'
         if networks is not None: # TODO: kind of a hack
             self.name = '.'.join(network.name for network in networks)
@@ -479,13 +494,12 @@ class Concat:
         # NDN params
         self.input_covariate = None # this should always be None for an Operator
         self.ffnet_type = NetworkType.normal.value # normal is used for concatenation
-        self.layers = [PassthroughLayer(num_filters=num_filters, NLtype=NLtype, bias=bias)]
+        self.layers = [PassthroughLayer(num_filters=num_filters, NLtype=NLtype, bias=bias, freeze_weights=freeze_weights)]
 
         # points its parents (the things to be summed) to this node
         if networks is not None:
             for network in networks:
-                network.output = [self]
-
+                network.output = self
     def to(self, network):
         # if we are going to an output, update our num_filters to be the num_neurons
         if isinstance(network, Output):
@@ -500,10 +514,10 @@ class Concat:
             return 'Concat name='+self.name+' '+str(self.index)
 
 class Add:
-    def __init__(self, 
-                 networks=None, 
-                 NLtype=NL.softplus, 
-                 bias=False):
+    def __init__(self,
+                 NLtype,
+                 networks=None,
+                 bias=None):
         # TODO: this is a little hacky
         num_filters = None
         if networks is not None:
@@ -528,7 +542,7 @@ class Add:
         # points its parents (the things to be summed) to this node
         if networks is not None:
             for network in networks:
-                network.output = [self]
+                network.output = self
 
     def to(self, network):
         # if we are going to an output, update our num_filters to be the num_neurons
@@ -546,9 +560,9 @@ class Add:
 
 class Mult:
     def __init__(self,
+                 NLtype,
                  networks=None,
-                 NLtype=NL.softplus,
-                 bias=False):
+                 bias=None):
         num_filters = None
         # TODO: this is a little hacky
         if networks is not None:
@@ -569,10 +583,11 @@ class Mult:
         self.input_covariate = None # this should always be None for an Operator
         self.ffnet_type = NetworkType.mult.value
         self.layers = [Layer(num_filters=num_filters, NLtype=NLtype, bias=bias)]
+        
         # points its parents (the things to be multiplied) to this node
         if networks is not None:
             for network in networks:
-                network.output = [self]
+                network.output = self
 
     def to(self, network):
         # if we are going to an output, update our num_filters to be the num_neurons
@@ -658,7 +673,7 @@ def _Network_to_FFnetwork(network):
                     num_iter = NDNLayers[-1]['num_iter']
                 sanitized_layer_params['filter_dims'][0] = NDNLayers[-1]['num_filters']*num_iter
             layer_dict = layer_type.layer_dict(**sanitized_layer_params)
-        elif layer_type == ChannelLayer:
+        elif isinstance(network, Add) or isinstance(network, Mult) or isinstance(network, Concat):
             layer_dict = layer_type.layer_dict(**sanitized_layer_params)
             layer_dict['weights_initializer'] = 'ones'
         else:
@@ -699,7 +714,34 @@ def _Model_to_NDN(model, verbose):
         for i in range(len(model.networks)):
             print('---', model.networks[i].name, '---')
             pprint.pprint(ffnets[i])
-    return NDN.NDN(ffnet_list=ffnets, loss_type='poisson')
+    ndn_model = NDN.NDN(ffnet_list=ffnets, loss_type='poisson')
+    for ni in range(len(ndn_model.networks)):
+        network = model.networks[ni]
+        to_network = network.output
+        
+        for li in range(len(ndn_model.networks[ni].layers)):
+            layer = model.networks[ni].layers[li]
+            weights = layer.params['internal_weights']
+            if weights is not None:
+                ndn_model.networks[ni].layers[li].weight.data = copy.deepcopy(weights.data)
+            
+            freeze_weights = layer.params['internal_freeze_weights']
+            if freeze_weights: # set the weights to be frozen on the NDN model
+                # turn off the parameters on the current layer
+                ndn_model.networks[ni].layers[li].set_parameters(val=False)                
+                # if this is not the last layer in the network,
+                # turn off the weights on the next layer
+                if li < len(ndn_model.networks[ni].layers)-1:
+                    print('turning off weights on layer', li+1, 'of network', ni)
+                    ndn_model.networks[ni].layers[li+1].set_parameters(val=False,name='weight')
+                else:
+                    # if this is the last layer in the network,
+                    # turn off the weights on the to_network
+                    if ni < len(ndn_model.networks)-1:
+                        to_network_idx = to_network.index
+                        print('turning off weights on network', to_network, to_network_idx) 
+                        ndn_model.networks[to_network_idx].layers[0].set_parameters(val=False,name='weight')
+    return ndn_model
 
 
 class Model:

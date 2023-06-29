@@ -340,7 +340,8 @@ class TrainerParams:
                  history_size=100,
                  num_lags=10,
                  num_initializations=1,
-                 max_epochs=None,
+                 max_epochs=1,
+                 max_iter=100,
                  learning_rate=0.01,
                  weight_decay=0.1,
                  early_stopping_patience=4,
@@ -356,6 +357,7 @@ class TrainerParams:
         self.num_lags = num_lags
         self.num_initializations = num_initializations
         self.max_epochs = max_epochs
+        self.max_iter = max_iter
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
         self.early_stopping_patience = early_stopping_patience
@@ -480,13 +482,13 @@ class Runner:
             if self.trainer_params.trainer_type == TrainerType.lbfgs:
                 fit_pars = utils.create_optimizer_params(
                     optimizer_type='lbfgs',
-                    tolerance_change=1e-10,
-                    tolerance_grad=1e-10,
+                    tolerance_change=1e-8,
+                    tolerance_grad=1e-8,
                     history_size=self.trainer_params.history_size,
                     batch_size=self.trainer_params.batch_size,
                     max_epochs=self.trainer_params.max_epochs,
-                    max_iter=10)
-                fit_pars['verbose'] = 2
+                    max_iter=self.trainer_params.max_iter)
+                fit_pars['verbose'] = 0
             else:
                 fit_pars = utils.create_optimizer_params(
                     optimizer_type='AdamW',
