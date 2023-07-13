@@ -5,7 +5,9 @@
 
 import os
 
-folder_name = 'models/cnns_03'
+folder_name = 'models/cnns_04'
+num_trials = 1
+
 if not os.path.exists(folder_name):
     os.makedirs(folder_name)
 
@@ -169,7 +171,7 @@ NX = 60
 new_tc = np.array([top_corner[0]-Xshift, top_corner[1]-Yshift], dtype=np.int64)
 data.draw_stim_locations(top_corner = new_tc, L=NX)
 
-data.assemble_stimulus(top_corner=[new_tc[0], new_tc[1]], L=NX, fixdot=0, shifts=-shifts)
+data.assemble_stimulus(top_corner=[new_tc[0], new_tc[1]], L=NX, fixdot=0, shifts=-shifts, num_lags=num_lags)
 
 
 # In[6]:
@@ -491,7 +493,7 @@ def objective(trial):
     return np.mean(LLsNULL) - np.mean(LLs)
 
 
-study = optuna.create_study(direction='maximize', pruner=optuna.pruners.HyperbandPruner())
+study = optuna.create_study(direction='maximize')
 
 # enqueue initial parameters
 study.enqueue_trial(
@@ -538,6 +540,6 @@ study.enqueue_trial(
      'proj_filter_width': 17,
      'iter_filter_width': 7})
 
-study.optimize(objective, n_trials=30)
+study.optimize(objective, n_trials=num_trials)
 
 print(study.best_trial.number, study.best_params)
