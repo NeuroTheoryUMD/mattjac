@@ -5,9 +5,14 @@
 
 import os
 
-folder_name = 'models/cnns_03'
-if not os.path.exists(folder_name):
-    os.makedirs(folder_name)
+folder_name = 'glms_04_debug4'
+
+# Set up parameters
+d2x_vals = [0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000]
+glocal_vals = [0.001, 0.1, 1, 10, 100, 1000] # glocal
+l1_vals = [0.001, 0.01, 0.1, 1] # L1
+
+val_lists_map = {'d2x': d2x_vals, 'd2t': d2x_vals, 'glocalx': glocal_vals, 'l1': l1_vals}
 
 # In[1]:
 
@@ -62,7 +67,10 @@ import ColorDataUtils.EyeTrackingUtils as ETutils
 from NDNT.utils import imagesc   # because I'm lazy
 from NDNT.utils import ss        # because I'm real lazy
 
-device = torch.device("cuda:1")
+from ColorDataUtils.optimize import Optimizer
+
+
+device = torch.device("cuda:0")
 dtype = torch.float32
 
 # Where saved models and checkpoints go -- this is to be automated
@@ -70,11 +78,9 @@ print( 'Save_dir =', dirname)
 print(device)
 
 class Model:
-    def __init__(self, ndn_model, LLs, trial):
-        self.ndn_model = ndn_model
+    def __init__(self, ndn, LLs):
+        self.ndn = ndn
         self.LLs = LLs
-        self.trial = trial
-
 
 # # load data (all stim)
 
@@ -168,7 +174,7 @@ NX = 60
 new_tc = np.array([top_corner[0]-Xshift, top_corner[1]-Yshift], dtype=np.int64)
 data.draw_stim_locations(top_corner = new_tc, L=NX)
 
-data.assemble_stimulus(top_corner=[new_tc[0], new_tc[1]], L=NX, fixdot=0, shifts=-shifts)
+data.assemble_stimulus(top_corner=[new_tc[0], new_tc[1]], L=NX, fixdot=0, shifts=-shifts, num_lags=num_lags)
 
 
 # In[6]:
@@ -183,6 +189,17 @@ data.dfs_out *= valfix
 ("%0.1f%% fixations remaining"%(100*len(goodfix)/ETmetrics.shape[0]))
 dirname2 = dirname+'0715/NewGLMs/'
 matdat = sio.loadmat(dirname2+'J0715ProcGLMinfo.mat')
+
+
+lbfgs_pars = utils.create_optimizer_params(
+    optimizer_type='lbfgs',
+    tolerance_change=1e-8,
+    tolerance_grad=1e-8,
+    history_size=100,
+    batch_size=20,
+    max_epochs=3,
+    max_iter=500,
+    device=device)
 
 
 fw0 = 7
@@ -247,286 +264,156 @@ net2_comb['layer_list'][0]['bias'] = True
 
 
 # In[7]:
-import optuna
-
-drifts = []
-
-for cc in range(NCv):
-    drift_model_filename = 'models/glms_03/drift_model_cc'+str(valET[cc])+'.pkl'
-    drift_study_filename = 'models/glms_03/drift_study_cc'+str(valET[cc])+'.pkl'
+def fit_drift(i, cc, folder):
+    drift_model_filename = 'models/'+folder+'/drift_model_cc'+str(cc)+'.pkl'
 
     # continue if the file already exists
     if os.path.isfile(drift_model_filename):
         # load the model and continue
         print('loading model', cc)
         with open(drift_model_filename, 'rb') as f:
-            drifts.append(pickle.load(f))
+            drift = pickle.load(f)
+        return drift
 
+    data.set_cells(valET[cc])
+    
+    drift_ndn = NDN.NDN(
+        layer_list = [drift_pars1N], loss_type='poisson')
+    drift_ndn.block_sample=True
+    drift_ndn.networks[0].xstim_n = 'Xdrift'
 
+    drift_ndn.fit( data, force_dict_training=True, train_inds=None, **lbfgs_pars, verbose=0, version=1)
+    LL = drift_ndn.eval_models(data[data.val_blks], null_adjusted=False)[0]
+
+    drift_model = Model(drift_ndn, LL)
+
+    with open(drift_model_filename, 'wb') as f:
+        pickle.dump(drift_model, f)
+
+    return drift_model
+
+drifts = []
+#for i, cc in enumerate(range(NCv)):
+for i, cc in enumerate([5,23,39,60,4,93,15,36,37,44]):
+    drift = fit_drift(i, cc, folder_name)
+    drifts.append(drift)
 
 # In[8]:
-glms = []
-for i, cc in enumerate(range(NCv)):
-    glm_model_filename = 'models/glms_03/glm_model_cc'+str(valET[cc])+'.pkl'
-    glm_study_filename = 'models/glms_03/glm_study_cc'+str(valET[cc])+'.pkl'
+def fit_glm(i, cc, folder):
+    glm_model_filename = 'models/'+folder+'/glm_model_cc'+str(cc)+'.pkl'
 
-    drift_weights = drifts[i].ndn_model.networks[0].layers[0].weight.data[:,0]
+    drift_weights = drifts[i].ndn.networks[0].layers[0].weight.data[:,0]
 
     # continue if the file already exists
     if os.path.isfile(glm_model_filename):
         # load the model and continue
         print('loading model', cc)
         with open(glm_model_filename, 'rb') as f:
-            glms.append(pickle.load(f))
-        continue
+            glm = pickle.load(f)
+        return glm
 
     data.set_cells(valET[cc])
 
     LLsNULL = drifts[i].LLs
 
-    glm = NDN.NDN(ffnet_list = [stim_net, drift_net, net_comb], loss_type='poisson')
-    glm.block_sample=True
-    glm.networks[1].layers[0].weight.data[:,0] = deepcopy(drift_weights)
-    glm.networks[1].layers[0].set_parameters(val=False)
-    glm.networks[2].layers[0].set_parameters(val=False,name='weight')
+    # optimize the d2x, d2t, d2xt, and glocalx first
+    def objective(key, val, best_model):
+        if best_model is None:
+            glm = NDN.NDN(ffnet_list = [stim_net, drift_net, net_comb], loss_type='poisson')
+            glm.block_sample=True
+            glm.networks[1].layers[0].weight.data[:,0] = deepcopy(drift_weights)
+            glm.networks[1].layers[0].set_parameters(val=False)
+            glm.networks[2].layers[0].set_parameters(val=False,name='weight')
+        else:
+            glm = deepcopy(best_model)
 
-    glms_temp = []
+        # set the reg_vals for the key
+        glm.networks[0].layers[0].reg.vals[key] = val
 
-    def objective(trial):
-        lbfgs_pars = utils.create_optimizer_params(
-            optimizer_type='lbfgs',
-            tolerance_change=trial.suggest_float('tolerance_change', 1e-10, 1e-6),
-            tolerance_grad=trial.suggest_float('tolerance_grad', 1e-10, 1e-6),
-            history_size=100,
-            batch_size=20,
-            max_epochs=3,
-            max_iter=500,
-            device=device)
-
-        glm.networks[0].layers[0].reg.vals['d2x'] = trial.suggest_float('d2x', 10, 30)
-        glm.networks[0].layers[0].reg.vals['d2t'] = trial.suggest_float('d2t', 0.5, 2)
-        glm.networks[0].layers[0].reg.vals['d2xt'] = trial.suggest_float('d2xt', 0.001, 10000)
-        glm.networks[0].layers[0].reg.vals['l1'] = trial.suggest_float('l1', 0.01, 1)
-        glm.networks[0].layers[0].reg.vals['glocalx'] = trial.suggest_float('glocalx', 0.001, 20)
-
-        glm.fit(data, force_dict_training=True, trial=trial, **lbfgs_pars)
+        glm.fit(data, force_dict_training=True, **lbfgs_pars)
         LL = glm.eval_models(data[data.val_blks], null_adjusted=False)[0]
 
         null_adjusted_LL = LLsNULL - LL
 
-        glm_model = Model(glm, null_adjusted_LL, trial)
-        glms_temp.append(glm_model)
+        return glm, null_adjusted_LL
 
-        return null_adjusted_LL
+    optimizer = Optimizer(objective, val_lists_map)
 
-    study = optuna.create_study(direction='maximize')
+    best_model, best_LL, best_vals, best_LLs = optimizer.optimize()
 
-    # enqueue initial parameters
-    study.enqueue_trial(
-        {'d2t': 1,
-         'd2x': 20,
-         'd2xt': 0.001,
-         'l1': 0.1,
-         'glocalx': 10.0,
-         'tolerance_change': 1e-8,
-         'tolerance_grad': 1e-8})
-    study.enqueue_trial(
-        {'d2t': 1,
-         'd2x': 20,
-         'd2xt': 0.01,
-         'l1': 0.1,
-         'glocalx': 10.0,
-         'tolerance_change': 1e-8,
-         'tolerance_grad': 1e-8})
-    study.enqueue_trial(
-        {'d2t': 1,
-         'd2x': 20,
-         'd2xt': 0.1,
-         'l1': 0.1,
-         'glocalx': 10.0,
-         'tolerance_change': 1e-8,
-         'tolerance_grad': 1e-8})
-    study.enqueue_trial(
-        {'d2t': 1,
-         'd2x': 20,
-         'd2xt': 1,
-         'l1': 0.1,
-         'glocalx': 10.0,
-         'tolerance_change': 1e-8,
-         'tolerance_grad': 1e-8})
-    study.enqueue_trial(
-        {'d2t': 1,
-         'd2x': 20,
-         'd2xt': 10,
-         'l1': 0.1,
-         'glocalx': 10.0,
-         'tolerance_change': 1e-8,
-         'tolerance_grad': 1e-8})
+    glm_model = Model(best_model, best_LL)
 
-    study.optimize(objective, n_trials=50)
-
-    best_model = glms_temp[study.best_trial.number]
-
-    glms.append(best_model)
-
-    # save the model
     with open(glm_model_filename, 'wb') as f:
-        pickle.dump(best_model, f)
+        pickle.dump(glm_model, f)
 
-    # save the study
-    with open(glm_study_filename, 'wb') as f:
-        pickle.dump(study, f)
+    return glm_model
 
-    print(study.best_trial.number, study.best_params)
-
+glms = []
+#for i, cc in enumerate(range(NCv)):
+for i, cc in enumerate([5,23,39,60,4,93,15,36,37,44]):
+    glm = fit_glm(i, cc, folder_name)
+    glms.append(glm)
 
 # In[9]:
-gqms = []
-for i, cc in enumerate(range(NCv)):
-    gqm_model_filename = 'models/glms_03/gqm_model_cc'+str(valET[cc])+'.pkl'
-    gqm_study_filename = 'models/glms_03/gqm_study_cc'+str(valET[cc])+'.pkl'
+# fit a GQM using my simpler Optimizer
+def fit_gqm2(i, cc, folder):
+    gqm_model_filename = 'models/'+folder+'/gqm_model_cc'+str(cc)+'.pkl'
 
-    drift_weights = drifts[i].ndn_model.networks[0].layers[0].weight.data[:,0]
+    drift_weights = drifts[i].ndn.networks[0].layers[0].weight.data[:,0]
 
     # continue if the file already exists
     if os.path.isfile(gqm_model_filename):
         # load the model and continue
         print('loading model', cc)
         with open(gqm_model_filename, 'rb') as f:
-            gqms.append(pickle.load(f))
-        continue
+            gqm = pickle.load(f)
+        return gqm
 
     data.set_cells(valET[cc])
 
     LLsNULL = drifts[i].LLs
 
     # get the best reg_vals for the GLM
-    best_reg_vals = glms[i].ndn_model.networks[0].layers[0].reg.vals
-    stim_net['layer_list'][0]['reg_vals'] = deepcopy(best_reg_vals)
-    gqm = NDN.NDN(ffnet_list = [stim_net, drift_net, stim_qnet, net2_comb], loss_type='poisson')
-    gqm.networks[0].layers[0] = deepcopy(glms[i].ndn_model.networks[0].layers[0])
-    gqm.block_sample=True
-    gqm.networks[3].layers[0].set_parameters(val=False,name='weight')
-    gqm.networks[1].layers[0].weight.data[:,0] = deepcopy(
-        drifts[i].ndn_model.networks[0].layers[0].weight.data[:,0])
-    gqm.networks[1].layers[0].set_parameters(val=False)
+    best_reg_vals = glms[i].ndn.networks[0].layers[0].reg.vals
 
-    gqms_temp = []
+    # optimize the d2x, d2t, d2xt, and glocalx first
+    def objective(key, val, best_model):
+        # get the best reg_vals for the GLM
+        stim_net['layer_list'][0]['reg_vals'] = deepcopy(best_reg_vals)
 
-    def objective(trial):
-        lbfgs_pars = utils.create_optimizer_params(
-            optimizer_type='lbfgs',
-            tolerance_change=trial.suggest_float('tolerance_change', 1e-10, 1e-6),
-            tolerance_grad=trial.suggest_float('tolerance_grad', 1e-10, 1e-6),
-            history_size=100,
-            batch_size=20,
-            max_epochs=3,
-            max_iter = 500,
-            device = device)
+        if best_model is None:
+            gqm = NDN.NDN(ffnet_list = [stim_net, drift_net, stim_qnet, net2_comb], loss_type='poisson')
+            gqm.networks[0].layers[0] = deepcopy(glms[i].ndn.networks[0].layers[0])
+            gqm.block_sample=True
+            gqm.networks[3].layers[0].set_parameters(val=False,name='weight')
+            gqm.networks[1].layers[0].weight.data[:,0] = deepcopy(drift_weights)
+            gqm.networks[1].layers[0].set_parameters(val=False)
+        else:
+            gqm = deepcopy(best_model)
 
-        # linear reg vals
-        gqm.networks[0].layers[0].reg.vals['d2x'] = trial.suggest_float('lin_d2x', 10, 30)
-        gqm.networks[0].layers[0].reg.vals['d2t'] = trial.suggest_float('lin_d2t', 0.5, 2)
-        gqm.networks[0].layers[0].reg.vals['d2xt'] = trial.suggest_float('lin_d2xt', 0.001, 10000)
-        gqm.networks[0].layers[0].reg.vals['l1'] = trial.suggest_float('lin_l1', 0.01, 1)
-        gqm.networks[0].layers[0].reg.vals['glocalx'] = trial.suggest_float('lin_glocalx', 0.001, 20)
+        # set the reg_vals for the key
+        gqm.networks[2].layers[0].reg.vals[key] = val
 
-        # quadratic reg vals
-        gqm.networks[2].layers[0].reg.vals['d2x'] = trial.suggest_float('quad_d2x', 10, 30)
-        gqm.networks[2].layers[0].reg.vals['d2t'] = trial.suggest_float('quad_d2t', 0.5, 2)
-        gqm.networks[2].layers[0].reg.vals['d2xt'] = trial.suggest_float('quad_d2xt', 0.001, 10000)
-        gqm.networks[2].layers[0].reg.vals['l1'] = trial.suggest_float('quad_la', 0.01, 1)
-        gqm.networks[2].layers[0].reg.vals['glocalx'] = trial.suggest_float('quad_glocalx', 0.001, 20)
-
-        gqm.fit( data, force_dict_training=True, **lbfgs_pars)
+        gqm.fit(data, force_dict_training=True, **lbfgs_pars)
         LL = gqm.eval_models(data[data.val_blks], null_adjusted=False)[0]
 
         null_adjusted_LL = LLsNULL - LL
 
-        gqm_model = Model(gqm, null_adjusted_LL, trial)
-        gqms_temp.append(gqm_model)
+        return gqm, null_adjusted_LL
 
-        return null_adjusted_LL
+    optimizer = Optimizer(objective, val_lists_map)
 
-    study = optuna.create_study(direction='maximize')
+    best_model, best_LL, best_vals, best_LLs = optimizer.optimize()
 
-    # enqueue initial parameters
-    study.enqueue_trial(
-        {'lin_d2t': best_reg_vals['d2t'],
-         'lin_d2x': best_reg_vals['d2x'],
-         'lin_d2xt': best_reg_vals['d2xt'],
-         'lin_l1': best_reg_vals['l1'],
-         'lin_glocalx': best_reg_vals['glocalx'],
-         'quad_d2t': 1,
-         'quad_d2x': 20,
-         'quad_d2xt': 0.001,
-         'quad_l1': 0.1,
-         'quad_glocalx': 10.0,
-         'tolerance_change': 1e-8,
-         'tolerance_grad': 1e-8})
-    study.enqueue_trial(
-        {'lin_d2t': best_reg_vals['d2t'],
-         'lin_d2x': best_reg_vals['d2x'],
-         'lin_d2xt': best_reg_vals['d2xt'],
-         'lin_l1': best_reg_vals['l1'],
-         'lin_glocalx': best_reg_vals['glocalx'],
-         'quad_d2t': 1,
-         'quad_d2x': 20,
-         'quad_d2xt': 0.01,
-         'quad_l1': 0.1,
-         'quad_glocalx': 10.0,
-         'tolerance_change': 1e-8,
-         'tolerance_grad': 1e-8})
-    study.enqueue_trial(
-        {'lin_d2t': best_reg_vals['d2t'],
-         'lin_d2x': best_reg_vals['d2x'],
-         'lin_d2xt': best_reg_vals['d2xt'],
-         'lin_l1': best_reg_vals['l1'],
-         'lin_glocalx': best_reg_vals['glocalx'],
-         'quad_d2t': 1,
-         'quad_d2x': 20,
-         'quad_d2xt': 0.1,
-         'quad_l1': 0.1,
-         'quad_glocalx': 10.0,
-         'tolerance_change': 1e-8,
-         'tolerance_grad': 1e-8})
-    study.enqueue_trial(
-        {'lin_d2t': best_reg_vals['d2t'],
-         'lin_d2x': best_reg_vals['d2x'],
-         'lin_d2xt': best_reg_vals['d2xt'],
-         'lin_l1': best_reg_vals['l1'],
-         'lin_glocalx': best_reg_vals['glocalx'],
-         'quad_d2t': 1,
-         'quad_d2x': 20,
-         'quad_d2xt': 1,
-         'quad_l1': 0.1,
-         'quad_glocalx': 10.0,
-         'tolerance_change': 1e-8,
-         'tolerance_grad': 1e-8})
-    study.enqueue_trial(
-        {'lin_d2t': best_reg_vals['d2t'],
-         'lin_d2x': best_reg_vals['d2x'],
-         'lin_d2xt': best_reg_vals['d2xt'],
-         'lin_l1': best_reg_vals['l1'],
-         'lin_glocalx': best_reg_vals['glocalx'],
-         'quad_d2t': 1,
-         'quad_d2x': 20,
-         'quad_d2xt': 10,
-         'quad_l1': 0.1,
-         'quad_glocalx': 10.0,
-         'tolerance_change': 1e-8,
-         'tolerance_grad': 1e-8})
-
-    study.optimize(objective, n_trials=50)
-
-    best_model = gqms_temp[study.best_trial.number]
-
-    gqms.append(best_model)
+    gqm_model = Model(best_model, best_LL)
 
     with open(gqm_model_filename, 'wb') as f:
-        pickle.dump(best_model, f)
+        pickle.dump(gqm_model, f)
 
-    with open(gqm_study_filename, 'wb') as f:
-        pickle.dump(study, f)
+    return gqm_model
 
-    print(study.best_trial.number, study.best_params)
+gqms = []
+#for i, cc in enumerate(range(NCv)):
+for i, cc in enumerate([5,23,39,60,4,93,15,36,37,44]):
+    gqm = fit_gqm2(i, cc, folder_name)
+    gqms.append(gqm)

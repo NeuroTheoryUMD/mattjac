@@ -5,8 +5,8 @@
 
 import os
 
-folder_name = 'models/cnns_04'
-num_trials = 1
+folder_name = 'models/cnns_06'
+num_trials = 20
 
 if not os.path.exists(folder_name):
     os.makedirs(folder_name)
@@ -304,29 +304,34 @@ num_iter = 4
 #     LGNmods.append(deepcopy(cnn_iter))
 
 
-# # OPTUNA
+# In[ ]: load a good model as a starting point for the LGN filters 
+with open('models/cnns_03/cnn_12.pkl', 'rb') as f:
+    cnn12 = pickle.load(f).ndn_model
+print(cnn12.networks[0].layers[0].get_weights().shape)
+
 
 # In[ ]:
+
+adam_parsT = utils.create_optimizer_params(
+    optimizer_type='AdamW',
+    batch_size=2, # * 240 timesteps
+    num_workers=0,
+    learning_rate=0.0017,
+    early_stopping_patience=4,
+    optimize_graph=False,
+    weight_decay=0.235)
+adam_parsT['device'] = device
+# how many batches to wait for before calculating the gradient
+adam_parsT['accumulated_grad_batches'] = 6
 
 
 cnns = []
 
 def objective(trial):
-    adam_parsT = utils.create_optimizer_params(
-        optimizer_type='AdamW',
-        batch_size=2, # * 240 timesteps
-        num_workers=0,
-        learning_rate=trial.suggest_float('learning_rate', 0.001, 0.1),
-        early_stopping_patience=4,
-        optimize_graph=False,
-        weight_decay=trial.suggest_float('weight_decay', 0.01, 1.0))
-    adam_parsT['device'] = device
-    # how many batches to wait for before calculating the gradient
-    adam_parsT['accumulated_grad_batches'] = 6
-
     LGNpars = STconvLayer.layer_dict(
         input_dims = data.stim_dims,
-        num_filters=trial.suggest_int('LGN_num_filters', 4, 8),
+        num_filters=4,
+        num_inh=2,
         bias=False,
         norm_type=1,
         filter_dims=[1,  # channels
@@ -342,81 +347,80 @@ def objective(trial):
                            'center': Creg,
                            'edge_t':100} # just pushes the edge to be sharper
 
-    num_subs = trial.suggest_int('num_subs', 10, 50)
-    num_inh = trial.suggest_float('num_inh', 0.1, 0.7)
-    # num_subs0 = trial.suggest_int('num_subs_l0', 10, 50)
-    # num_subs1 = trial.suggest_int('num_subs_l1', 10, 50)
-    # num_subs2 = trial.suggest_int('num_subs_l2', 10, 50)
-    # num_inh0 = trial.suggest_float('num_inh_l0', 0.1, 0.7)
-    # num_inh1 = trial.suggest_float('num_inh_l1', 0.1, 0.7)
-    # num_inh2 = trial.suggest_float('num_inh_l2', 0.1, 0.7)
+    # num_subs = trial.suggest_int('num_subs', 10, 50)
+    # num_inh = trial.suggest_float('num_inh', 0.1, 0.7)
+    num_subs0 = trial.suggest_int('num_subs_l0', 10, 50)
+    num_subs1 = trial.suggest_int('num_subs_l1', 10, 50)
+    num_subs2 = trial.suggest_int('num_subs_l2', 10, 50)
+    num_inh0 = trial.suggest_float('num_inh_l0', 0.1, 0.7)
+    num_inh1 = trial.suggest_float('num_inh_l1', 0.1, 0.7)
+    num_inh2 = trial.suggest_float('num_inh_l2', 0.1, 0.7)
+    conv_l0_filter_width = trial.suggest_int('conv_l0_filter_width', 5, 17, step=2)
+    conv_l1_filter_width = trial.suggest_int('conv_l1_filter_width', 5, 17, step=2)
+    conv_l2_filter_width = trial.suggest_int('conv_l2_filter_width', 5, 17, step=2)
     proj_pars = ConvLayer.layer_dict(
-        num_filters=num_subs,
+        num_filters=num_subs0,
         bias=False,
         norm_type=1,
-        num_inh=int(num_inh*num_subs),
+        num_inh=int(num_inh0*num_subs0),
         filter_dims=trial.suggest_int('proj_filter_width', 9, 29, step=2),
-        NLtype=trial.suggest_categorical('LGN_NLtype', ['lin', 'relu']),
+        NLtype=trial.suggest_categorical('proj_NLtype', ['lin', 'relu']),
         initialize_center=True)
     proj_pars['output_norm']='batch'
     proj_pars['window']='hamming'
 
-    # conv_layer0 = Tlayer.layer_dict(
-    #     num_filters=num_subs1,
-    #     num_inh=int(num_inh1*num_subs1),
-    #     bias=False,
-    #     pos_constraint=True,
-    #     norm_type=1,
-    #     filter_width=trial.suggest_int('conv_l0_filter_width', 5, 17, step=2),
-    #     num_lags=2,
-    #     NLtype='relu',
-    #     initialize_center=False)
-    # conv_layer0['output_norm'] = 'batch'
-    # 
-    # conv_layer1 = Tlayer.layer_dict(
-    #     num_filters=num_subs1,
-    #     num_inh=int(num_inh1*num_subs1),
-    #     bias=False,
-    #     pos_constraint=True,
-    #     norm_type=1,
-    #     filter_width=trial.suggest_int('conv_l1_filter_width', 5, 17, step=2),
-    #     num_lags=2,
-    #     NLtype='relu',
-    #     initialize_center=False)
-    # conv_layer1['output_norm'] = 'batch'
-    # 
-    # conv_layer2 = Tlayer.layer_dict(
-    #     num_filters=num_subs2,
-    #     num_inh=int(num_inh2*num_subs2),
-    #     bias=False,
-    #     pos_constraint=True,
-    #     norm_type=1,
-    #     filter_width=trial.suggest_int('conv_l2_filter_width', 5, 17, step=2),
-    #     num_lags=2,
-    #     NLtype='relu',
-    #     initialize_center=False)
-    # conv_layer2['output_norm'] = 'batch'
-
-    iter_layers = IterSTlayer.layer_dict(
-        num_filters=num_subs,
-        num_inh=int(num_inh*num_subs),
+    conv_layer0 = STconvLayer.layer_dict(
+        num_filters=num_subs1,
+        num_inh=int(num_inh1*num_subs1),
         bias=False,
-        num_iter=trial.suggest_int('num_iter', 1, 6),
-        output_config='full',
         pos_constraint=True,
         norm_type=1,
-        filter_width=trial.suggest_int('iter_filter_width', 5, 17, step=2),
-        num_lags=2,
+        conv_dims=[conv_l0_filter_width, conv_l0_filter_width, 2],
         NLtype='relu',
         initialize_center=False)
-    iter_layers['output_norm'] = 'batch'
-    #iter_layers['reg_vals'] = {'glocal': 1e-5*trial.suggest_int('iter_glocal', 10, 1e10, log=True)}
+    conv_layer0['output_norm'] = 'batch'
+
+    conv_layer1 = STconvLayer.layer_dict(
+        num_filters=num_subs1,
+        num_inh=int(num_inh1*num_subs1),
+        bias=False,
+        pos_constraint=True,
+        norm_type=1,
+        conv_dims=[conv_l0_filter_width, conv_l0_filter_width, 2],
+        NLtype='relu',
+        initialize_center=False)
+    conv_layer1['output_norm'] = 'batch'
+
+    conv_layer2 = STconvLayer.layer_dict(
+        num_filters=num_subs2,
+        num_inh=int(num_inh2*num_subs2),
+        bias=False,
+        pos_constraint=True,
+        norm_type=1,
+        conv_dims=[conv_l0_filter_width, conv_l0_filter_width, 2],
+        NLtype='relu',
+        initialize_center=False)
+    conv_layer2['output_norm'] = 'batch'
+
+    # iter_layers = IterSTlayer.layer_dict(
+    #     num_filters=num_subs,
+    #     num_inh=int(num_inh*num_subs),
+    #     bias=False,
+    #     num_iter=trial.suggest_int('num_iter', 1, 6),
+    #     output_config='full',
+    #     pos_constraint=True,
+    #     norm_type=1,
+    #     filter_width=trial.suggest_int('iter_filter_width', 5, 17, step=2),
+    #     num_lags=2,
+    #     NLtype='relu',
+    #     initialize_center=False)
+    # iter_layers['output_norm'] = 'batch'
 
     scaffold_net =  FFnetwork.ffnet_dict(
         ffnet_type='scaffold',
         xstim_n='stim',
-        layer_list=[LGNpars, proj_pars, iter_layers],
-        scaffold_levels=[1,2])
+        layer_list=[LGNpars, proj_pars, conv_layer0, conv_layer1, conv_layer2],
+        scaffold_levels=[1,2,3,4])
 
     ## 1: READOUT
     # reads out from a specific location in the scaffold network
@@ -463,6 +467,11 @@ def objective(trial):
     cnn = NDN.NDN(ffnet_list = [scaffold_net, readout_net, drift_net, comb_net],
                   loss_type='poisson')
     cnn.block_sample = True
+    
+    
+    ## Network 0: LGN
+    # copy weights from a good LGN model
+    cnn.networks[0].layers[0] = deepcopy(cnn12.networks[0].layers[0])
 
     ## Network 1: readout: fixed mus / sigmas
     cnn.networks[1].layers[0].sample = False
@@ -484,62 +493,59 @@ def objective(trial):
     cnn_model = Model(cnn, LLsNULL-LLs, trial)
     cnns.append(cnn_model)
     
-    with open(folder_name+'/cnn_'+str(len(study.trials))+'.pkl', 'wb') as f:
+    with open(folder_name+'/cnn_'+str(trial.number)+'.pkl', 'wb') as f:
         pickle.dump(cnn_model, f)
 
+    # dump the intermediate study, but this will be off by one trial
     with open(folder_name+'/study.pkl', 'wb') as f:
         pickle.dump(study, f)
 
     return np.mean(LLsNULL) - np.mean(LLs)
 
 
+
+# 
+
 study = optuna.create_study(direction='maximize')
 
 # enqueue initial parameters
-study.enqueue_trial(
-    {'LGN_num_filters': 4,
-     'LGN_NLtype': 'lin',
-     'learning_rate': 0.01,
-     'weight_decay': 0.2,
-     'num_subs': 30,
-     'num_inh': 0.5,
-     'num_iter': 3,
-     'proj_filter_width': 17,
-     'iter_filter_width': 7})
+# study.enqueue_trial(
+#     {'proj_NLtype': 'lin', # best = lin
+#      'num_subs': 38, # best = 38
+#      'num_inh': 0.4, # best = 0.4
+#      'num_iter': 5, # best = 5
+#      'proj_filter_width': 21, # best = 21
+#      #'iter_filter_width': 9,
+#      'conv_l0_filter_width': 17,
+#      'conv_l1_filter_width': 11,
+#      'conv_l2_filter_width': 5}) # best = 9
 
-study.enqueue_trial(
-    {'LGN_num_filters': 4,
-     'LGN_NLtype': 'relu',
-     'learning_rate': 0.01,
-     'weight_decay': 0.2,
-     'num_subs': 30,
-     'num_inh': 0.5,
-     'num_iter': 3,
-     'proj_filter_width': 17,
-     'iter_filter_width': 7})
+#num_iters = [2, 4, 6]
+proj_NLtypes = ['lin', 'relu']
 
-study.enqueue_trial(
-    {'LGN_num_filters': 4,
-     'LGN_NLtype': 'lin',
-     'learning_rate': 0.01,
-     'weight_decay': 0.2,
-     'num_subs': 30,
-     'num_inh': 0.5,
-     'num_iter': 4,
-     'proj_filter_width': 17,
-     'iter_filter_width': 7})
+for proj_NLtype in proj_NLtypes:
+    study.enqueue_trial(
+        {'proj_NLtype': proj_NLtype,
+         #'num_subs': 38,
+         #'num_inh': 0.5,
+         'num_iter': num_iter,
+         'proj_filter_width': 21,
+         #'iter_filter_width': 9,
+         'num_subs_l0': 38,
+         'num_subs_l1': 38,
+         'num_subs_l2': 38,
+         'num_inh_l0': 0.5,
+         'num_inh_l1': 0.5,
+         'num_inh_l2': 0.5,
+         'conv_l0_filter_width': 15,
+         'conv_l1_filter_width': 9,
+         'conv_l2_filter_width': 5})
 
-study.enqueue_trial(
-    {'LGN_num_filters': 4,
-     'LGN_NLtype': 'relu',
-     'learning_rate': 0.01,
-     'weight_decay': 0.2,
-     'num_subs': 30,
-     'num_inh': 0.5,
-     'num_iter': 4,
-     'proj_filter_width': 17,
-     'iter_filter_width': 7})
 
 study.optimize(objective, n_trials=num_trials)
+
+# dump the final study
+with open(folder_name+'/study.pkl', 'wb') as f:
+    pickle.dump(study, f)
 
 print(study.best_trial.number, study.best_params)
