@@ -5,6 +5,8 @@
 *.txt
 *.pickle
 *.pyc
+v1/models
+v1/Cdata
 v1/lib/__pycache__/experiment.cpython-38.pyc
 lvs/lib/NDNT
 lvs/lib/NTdatasets
@@ -25,7 +27,7 @@ experiments
 v1/experiments
 v1/__pycache__
 v1/viz/*
-v1/archive/__pycache__/
+v1/archive/__pycache__
 v1/DSTRF
 v1/dynamic_strf
 v1/former/data
