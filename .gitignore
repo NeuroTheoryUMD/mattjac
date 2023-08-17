@@ -5,6 +5,7 @@
 *.txt
 *.pickle
 *.pyc
+v1/coremodel/checkpoints
 v1/models
 v1/Cdata
 v1/lib/__pycache__/experiment.cpython-38.pyc

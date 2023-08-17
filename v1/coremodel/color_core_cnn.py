@@ -1,10 +1,14 @@
-folder_name = 'models/cnns_multi_06'
-num_trials = 10
+folder_name = '../models/cnns_multi_08_test'
+study_name = 'Test the 3-layer CNN on a single experiment.'
+num_trials = 5
+#expt_names = ['J220715','J220722','J220801','J220808']
+expt_names = ['J220715']
+array_types = ['UT']
 ############################################
 
 
 import sys
-sys.path.append('./lib')
+sys.path.append('../')
 
 import numpy as np
 import optuna
@@ -16,12 +20,9 @@ import NDNT.utils as utils # some other utilities
 import NDNT.NDNT as NDN
 from NDNT.modules.layers import *
 from NDNT.networks import *
-from time import time
 
 from ColorDataUtils.multidata_utils import MultiExperiment
 from ColorDataUtils.model_validation import validate_model, MockTrial
-from NDNT.utils import imagesc   # because I'm lazy
-from NDNT.utils import ss        # because I'm real lazy
 
 device = torch.device("cuda:1")
 dtype = torch.float32
@@ -32,12 +33,11 @@ dirname = '/home/dbutts/ColorV1/CLRworkspace/'
 
 # load data
 num_lags=16
-expt_names = ['J220715','J220722','J220801','J220808']
 expts = MultiExperiment(expt_names)
 data, drift_terms, mu0s = expts.load(datadir,
                                      num_lags=num_lags,
                                      et_metric_thresh=0.8,
-                                     array_types=['UT', 'UT', 'UT', 'UT'],
+                                     array_types=array_types,
                                      luminance_only=True)
 
 
@@ -56,7 +56,6 @@ adam_parsT = utils.create_optimizer_params(
     optimize_graph=False,
     weight_decay=0.235)
 adam_parsT['device'] = device
-#adam_parsT['accumulated_grad_batches'] = 6
 
 # setup
 data.device = device
@@ -73,7 +72,7 @@ Creg = None
 Dreg = 0.5
 
 
-def make_model(trial):
+def make_model_cnn(trial):
     LGNpars = STconvLayer.layer_dict(
         input_dims = data.stim_dims,
         num_filters=4,
@@ -93,36 +92,61 @@ def make_model(trial):
                            'center': Creg, # None
                            'edge_t':100} # just pushes the edge to be sharper
 
-    num_subs = trial.suggest_int('num_subs', 10, 50)
-    num_inh = trial.suggest_float('num_inh', 0.1, 0.7)
+    num_subs0 = trial.suggest_int('num_subs_l0', 20, 80)
+    num_subs1 = trial.suggest_int('num_subs_l1', 20, 80)
+    num_subs2 = trial.suggest_int('num_subs_l2', 20, 80)
+    num_inh0 = trial.suggest_float('num_inh_l0', 0.1, 0.7)
+    num_inh1 = trial.suggest_float('num_inh_l1', 0.1, 0.7)
+    num_inh2 = trial.suggest_float('num_inh_l2', 0.1, 0.7)
+    conv_l0_filter_width = trial.suggest_int('conv_l0_filter_width', 7, 39, step=2)
+    conv_l1_filter_width = trial.suggest_int('conv_l1_filter_width', 5, 39, step=2)
+    conv_l2_filter_width = trial.suggest_int('conv_l2_filter_width', 3, 39, step=2)
+
     proj_pars = ConvLayer.layer_dict(
-        num_filters=num_subs,
+        num_filters=num_subs0,
         bias=False,
         norm_type=1,
-        num_inh=int(num_inh*num_subs),
+        num_inh=int(num_inh0*num_subs0),
         filter_dims=trial.suggest_int('proj_filter_width', 7, 29, step=2),
         NLtype=trial.suggest_categorical('proj_NLtype', ['lin', 'relu']),
         initialize_center=True)
     proj_pars['output_norm']='batch'
     proj_pars['window']='hamming'
 
-    iter_layer = IterLayer.layer_dict(
-        num_filters=num_subs,
-        num_inh=int(num_inh*num_subs),
+    conv_layer0 = ConvLayer.layer_dict(
+        num_filters=num_subs0,
+        num_inh=int(num_inh0*num_subs0),
         bias=False,
-        num_iter=trial.suggest_int('num_iter', 2, 8),
-        output_config='full',
         norm_type=1,
-        filter_width=trial.suggest_int('iter_filter_width', 7, 47, step=2),
+        filter_dims=conv_l0_filter_width,
         NLtype='relu',
-        initialize_center=False,
-        res_layer=trial.suggest_categorical('res_layer', [True, False]))
-    iter_layer['output_norm'] = 'batch'
+        initialize_center=False)
+    conv_layer0['output_norm'] = 'batch'
+
+    conv_layer1 = ConvLayer.layer_dict(
+        num_filters=num_subs1,
+        num_inh=int(num_inh1*num_subs1),
+        bias=False,
+        norm_type=1,
+        filter_dims=conv_l1_filter_width,
+        NLtype='relu',
+        initialize_center=False)
+    conv_layer1['output_norm'] = 'batch'
+
+    conv_layer2 = ConvLayer.layer_dict(
+        num_filters=num_subs2,
+        num_inh=int(num_inh2*num_subs2),
+        bias=False,
+        norm_type=1,
+        filter_dims=conv_l2_filter_width,
+        NLtype='relu',
+        initialize_center=False)
+    conv_layer2['output_norm'] = 'batch'
 
     scaffold_net =  FFnetwork.ffnet_dict(
         ffnet_type='scaffold',
         xstim_n='stim',
-        layer_list=[LGNpars, proj_pars, iter_layer],
+        layer_list=[LGNpars, proj_pars, conv_layer0, conv_layer1, conv_layer2],
         scaffold_levels=[1,2])
 
     ## 1: READOUT
@@ -188,8 +212,8 @@ def make_model(trial):
     return cnn
 
 
-def objective(trial):
-    cnn = make_model(trial)
+def objective_cnn(trial):
+    cnn = make_model_cnn(trial)
 
     cnn.fit(data, **adam_parsT, verbose=2)
     LLs = cnn.eval_models(data, data_inds=data.val_blks, batch_size=5)
@@ -209,39 +233,33 @@ def objective(trial):
 
 
 
-val_map0 = {
-    'iter_filter_width': 15,
-    'num_inh': 0.69,
-    'num_iter': 7,
-    'num_subs': 45,
+val_map = {
     'proj_NLtype': 'relu',
     'proj_filter_width': 15,
-    'res_layer': False
-}
-val_map1 = {
-    'iter_filter_width': 15,
-    'num_inh': 0.69,
-    'num_iter': 7,
-    'num_subs': 45,
-    'proj_NLtype': 'relu',
-    'proj_filter_width': 15,
-    'res_layer': True
+    'conv_l0_filter_width': 15,
+    'conv_l1_filter_width': 15,
+    'conv_l2_filter_width': 15,
+    'num_subs_l0': 45,
+    'num_subs_l1': 35,
+    'num_subs_l2': 25,
+    'num_inh_l0': 0.69,
+    'num_inh_l1': 0.69,
+    'num_inh_l2': 0.69
 }
 
-mock_trial = MockTrial(val_map0)
-model0 = make_model(mock_trial)
+mock_trial = MockTrial(val_map)
+model0 = make_model_cnn(mock_trial)
 validate_model(model0)
 
 
 # create study
 study = optuna.create_study(direction='maximize',
-                            study_name='Four datasets w/o initializing LGN weights')
+                            study_name=study_name)
 
 # enqueue initial parameters
-study.enqueue_trial(val_map0)
-study.enqueue_trial(val_map1)
+study.enqueue_trial(val_map)
 
-study.optimize(objective, n_trials=num_trials)
+study.optimize(objective_cnn, n_trials=num_trials)
 
 
 # dump the final study
