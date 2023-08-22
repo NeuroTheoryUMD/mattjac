@@ -3,9 +3,12 @@
 *.pdf
 *.ipynb_checkpoints
 *.txt
+*.pkl
 *.pickle
 *.pyc
-v1/coremodel/checkpoints
+*.csv
+
+v1/core\ paper/checkpoints
 v1/models
 v1/Cdata
 v1/lib/__pycache__/experiment.cpython-38.pyc
