@@ -8,6 +8,7 @@
 *.pyc
 *.csv
 
+*.vscode/
 v1/core\ paper/checkpoints
 v1/models
 v1/Cdata

@@ -3,10 +3,18 @@ num_trials = 1
 #expt_names = [['J220715','J220722','J220801','J220808']]
 #folder_names = ['../models/cnns_multi_08']
 #array_types = [['UT','UT','UT','UT']]
-folder_names = ['../models/cnns_multi_06_1x_0801',
-                '../models/cnns_multi_06_1x_0808']
-expt_nameses = [['J220801'], ['J220808']]
-array_typeses = [['UT'], ['UT']]
+folder_names = ['../models/cnns_multi_06_2x_0715',
+                '../models/cnns_multi_06_2x_0722',
+                '../models/cnns_multi_06_2x_0801',
+                '../models/cnns_multi_06_2x_0808']
+expt_nameses = [['J220715','J220715'],
+                ['J220722','J220722'],
+                ['J220801','J220801'],
+                ['J220808','J220808']]
+array_typeses = [['UT','UT'],
+                 ['UT','UT'],
+                 ['UT','UT'],
+                 ['UT','UT']]
 ############################################
 
 
