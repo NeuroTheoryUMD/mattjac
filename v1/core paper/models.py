@@ -41,10 +41,10 @@ iter_0715_1x = load_model('cnns_multi_06_1x_0715/cnn_0.pkl')
 iter_0722_1x = load_model('cnns_multi_06_1x_0722/cnn_0.pkl')
 iter_0801_1x = load_model('cnns_multi_06_1x_0801/cnn_0.pkl')
 iter_0808_1x = load_model('cnns_multi_06_1x_0808/cnn_0.pkl')
-# iter_0715_2x = load_model('cnns_multi_06_2x_0715/cnn_0.pkl')
-# iter_0722_2x = load_model('cnns_multi_06_2x_0722/cnn_0.pkl')
-# iter_0801_2x = load_model('cnns_multi_06_2x_0801/cnn_0.pkl')
-# iter_0808_2x = load_model('cnns_multi_06_2x_0808/cnn_0.pkl')
+iter_0715_2x = load_model('cnns_multi_06_2x_0715/cnn_0.pkl')
+iter_0722_2x = load_model('cnns_multi_06_2x_0722/cnn_0.pkl')
+iter_0801_2x = load_model('cnns_multi_06_2x_0801/cnn_0.pkl')
+iter_0808_2x = load_model('cnns_multi_06_2x_0808/cnn_0.pkl')
 
 if __name__ == "__main__":
     sigfigs = 4
@@ -55,6 +55,10 @@ if __name__ == "__main__":
     print('iter_0722_1x\t', np.round(np.mean(iter_0722_1x.LLs), sigfigs))
     print('iter_0801_1x\t', np.round(np.mean(iter_0801_1x.LLs), sigfigs))
     print('iter_0808_1x\t', np.round(np.mean(iter_0808_1x.LLs), sigfigs))
+    print('iter_0715_2x\t', np.round(np.mean(iter_0715_2x.LLs), sigfigs))
+    print('iter_0722_2x\t', np.round(np.mean(iter_0722_2x.LLs), sigfigs))
+    print('iter_0801_2x\t', np.round(np.mean(iter_0801_2x.LLs), sigfigs))
+    print('iter_0808_2x\t', np.round(np.mean(iter_0808_2x.LLs), sigfigs))
     print()
     print('CNN')
     print('cnn_core   \t', np.round(np.mean(cnn_core.LLs), sigfigs))
@@ -66,6 +70,6 @@ if __name__ == "__main__":
     print('cnn_0722_2x\t', np.round(np.mean(cnn_0722_2x.LLs), sigfigs))
     print('cnn_0801_2x\t', np.round(np.mean(cnn_0801_2x.LLs), sigfigs))
     print('cnn_0808_2x\t', np.round(np.mean(cnn_0808_2x.LLs), sigfigs))
-    
+
     
     

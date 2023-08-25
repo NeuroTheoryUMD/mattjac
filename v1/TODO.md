@@ -1,12 +1,9 @@
-[x] compare Iter model LLs for single and core
-[x] fit new CNN core
-[x] make function for amount of exc/inh across layers
-[x] fit 1x CNN models on 0722, 0801, 0808 for comparison
-[x] fit 2x CNN models on 0722, 0801, 0808 for comparison
-[-] fit 2x iter models on 0722, 0801, 0808 for comparison
-[ ] get the val_inds I used for the different datasets 
-    and save them to a file I can reference (probably in my core paper folder for now)
+[x] do the comparison between single and 2x models again (as well as to core)
 [ ] see how the channels map to weight patterns and proj filters they prefer (do they fall into nice clusters?)
+[ ] see if there are relationships between some different neuron types and the proj weights
+[-] plan out Student Seminar
+
+[ ] look for new class
 [ ] start writing for FYRP meeting
 [ ] read Foundation Model paper
 
@@ -17,6 +14,12 @@
 
 
 ------------
+[x] compare Iter model LLs for single and core
+[x] fit new CNN core
+[x] make function for amount of exc/inh across layers
+[x] fit 1x CNN models on 0722, 0801, 0808 for comparison
+[x] fit 2x CNN models on 0722, 0801, 0808 for comparison
+[x] fit 2x iter models on 0722, 0801, 0808 for comparison
 [x] fit new iter models on 0715, 0722, 0801, 0808 using the 7-iteration structure I used for the core model for proper comparison
 [x] compare 1x 0715 model with 2x 0715 model (e.g. weights, etc.)
     [x] fit a model on 0722 and 0722 2x
