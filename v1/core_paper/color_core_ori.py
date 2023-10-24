@@ -27,6 +27,7 @@ datadir = '/Data/ColorV1/'
 
 
 ##################################################
+# model_0.01_23_24_16_8.pkl # best so far
 folder_name = '../models/ori_09a'
 proj_filter_cents = [0.0001, 0.001, 0.01]
 proj_filter_width = [17, 19, 21, 23]
